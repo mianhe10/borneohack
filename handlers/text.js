@@ -457,6 +457,16 @@ async function handleText(phone, text) {
                 );
                 return;
             }
+            // Direct sale/expense routing — faster + more reliable than Gemini intent
+            const SALE_KEYWORDS = ['jual', 'sold', 'dapat', 'terima', 'sale', 'jualan', 'pelanggan', 'customer', 'rm', 'rp', '₱', 'ringgit', 'sell', 'selling', 'received'];
+            const EXPENSE_KEYWORDS = ['beli', 'bought', 'bayar', 'pay', 'paid', 'belanja', 'spend', 'spent', 'kos', 'cost', 'perbelanjaan', 'expense', 'bahan', 'stock', 'stok', 'supplier'];
+            const hasNumber = /\d/.test(text);
+            const hasSaleKw = SALE_KEYWORDS.some(kw => lowerText.includes(kw));
+            const hasExpenseKw = EXPENSE_KEYWORDS.some(kw => lowerText.includes(kw));
+            if (hasNumber && (hasSaleKw || hasExpenseKw)) {
+                await handleLogSale(phone, text, userRef);
+                return;
+            }
             const { smartHandle } = require('./smart');
             await smartHandle(phone, text, userRef);
         }
