@@ -580,7 +580,7 @@ async function handleDocUpload(phone, mediaId, userRef) {
     await db.collection('loan_applications').doc(refId).set(appDoc);
     await userRef.update({ state: 'menu', last_application_id: refId, loan_application_status: 'pending_review' });
 
-    const dashUrl = process.env.PWA_URL || 'https://bizbuddy.onrender.com/dashboard.html';
+    const dashUrl = process.env.PWA_URL || 'https://bizbuddy-rtf9.onrender.com/dashboard.html';
     await sendMessage(phone, lang === 'bm'
         ? `✅ *Permohonan dihantar!*\n\n📋 Rujukan: *${refId}*\n🏦 Bank: ${selected.bank_name || '-'}\n💰 Jumlah: RM${(selected.max_amount || 0).toLocaleString()}\n⏱️ Maklum balas: 3 hari bekerja\n\nSaya akan beritahu awak apabila ada kemas kini.\n👉 ${dashUrl}\n\nTaip *MENU* untuk kembali`
         : `✅ *Application submitted!*\n\n📋 Reference: *${refId}*\n🏦 Bank: ${selected.bank_name || '-'}\n💰 Amount: RM${(selected.max_amount || 0).toLocaleString()}\n⏱️ Expected response: 3 working days\n\nI'll notify you here when there's an update.\n👉 ${dashUrl}\n\nType *MENU* to go back`);

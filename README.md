@@ -2,7 +2,7 @@
 
 > Building behavioral credit identity for 70 million unbanked ASEAN MSMEs through WhatsApp.
 
-[![Live Demo](https://img.shields.io/badge/Live-Demo-00d4aa?style=for-the-badge)](https://YOUR_DEPLOYMENT_URL_HERE)
+[![Live Demo](https://img.shields.io/badge/Live-Demo-00d4aa?style=for-the-badge)](https://bizbuddy-rtf9.onrender.com)
 [![Try the Bot](https://img.shields.io/badge/WhatsApp-Try_Bot-25d366?style=for-the-badge&logo=whatsapp)](https://wa.me/15551483471?text=Hi%20BizBuddy)
 
 ---
@@ -28,9 +28,9 @@ BizBuddy is the AI agent that turns invisible MSMEs into bankable businesses thr
 
 ## Live Demo
 
-- **Landing page:** [your-deployment.com](#)
-- **MSME Dashboard:** [your-deployment.com/dashboard.html](#)
-- **Bank Portal:** [your-deployment.com/bank.html](#) (access code: `bank2026`)
+- **Landing page:** [bizbuddy-rtf9.onrender.com](https://bizbuddy-rtf9.onrender.com)
+- **MSME Dashboard:** [bizbuddy-rtf9.onrender.com/dashboard.html](https://bizbuddy-rtf9.onrender.com/dashboard.html)
+- **Bank Portal:** [bizbuddy-rtf9.onrender.com/bank.html](https://bizbuddy-rtf9.onrender.com/bank.html) (access code: `bank2026`)
 - **WhatsApp Bot:** [+1 (555) 148-3471](https://wa.me/15551483471)
 
 ---
@@ -200,7 +200,7 @@ Create in Firestore Console → Indexes → Composite.
 ### Meta WhatsApp Webhook Setup
 
 1. In Meta Developer Console → WhatsApp → Configuration:
-   - Webhook URL: `https://your-deployment.com/webhook`
+   - Webhook URL: `https://bizbuddy-rtf9.onrender.com/webhook`
    - Verify Token: same as `WEBHOOK_VERIFY_TOKEN` in `.env`
    - Subscribe to: `messages`
 2. Local testing: `ngrok http 3000`, use the HTTPS URL.
