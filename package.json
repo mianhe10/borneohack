@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-sales-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp sales bot via Meta API + Gemini AI",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "firebase-admin": "^12.0.0"
+  }
+}

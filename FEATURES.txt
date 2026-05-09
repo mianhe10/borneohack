@@ -1,0 +1,177 @@
+================================================================
+BIZBUDDY — FULL FEATURE LIST
+================================================================
+
+================================================================
+WHATSAPP BOT
+================================================================
+
+--- ONBOARDING ---
+- Consent collection (PDPA compliance)
+- Country selection: Malaysia / Indonesia / Philippines
+- State/province selection (auto-list per country)
+- Business profile setup:
+  * Owner name
+  * Business name
+  * Product/service description
+  * Monthly revenue
+  * Business age
+  * Bank account status
+  * SSM/registration status
+- Language selection: Bahasa Malaysia / English
+
+--- SALES RECORDING ---
+- Natural language sale entry (type anything, AI extracts amount + item)
+  e.g. "jual nasi lemak 3 bungkus rm15" or "sold 5 bags for rm50"
+- Voice note recording → AI transcription → auto-processed as text
+- Expense recording via natural language
+  e.g. "beli bahan rm50" or "bought supplies rm80"
+- AI smart intent detection — bot understands context without strict commands
+
+--- CREDIT SCORING ---
+- Deterministic AI credit score (0–100) based on 6 criteria:
+  1. Transaction Consistency (25 pts)
+  2. Revenue Strength vs stated income (20 pts)
+  3. Business Age (15 pts)
+  4. Formalization — SSM + Bank Account (20 pts)
+  5. Record Volume — number of transactions (10 pts)
+  6. Expense Discipline — expense records (10 pts)
+- AI-generated score explanation + 3 improvement tips
+- Score breakdown with visual bar chart (text-based)
+- Score history tracking
+
+--- LOAN FEATURES ---
+- Loan readiness checklist (7 items, progress bar)
+  * Country-specific loan programs:
+    Malaysia: TEKUN/PUNB/BSN (up to RM50,000)
+    Indonesia: KUR (up to Rp50,000,000)
+    Philippines: SBCorp (up to ₱300,000)
+- Loan referral letter generator (auto-formatted, ready to send to bank officer)
+  * Requires credit score ≥ 70
+- Credit certificate (official-looking, includes cert ID, stars, loan-ready status)
+
+--- AI FEATURES ---
+- AI business advisor chat (context-aware, knows your business profile)
+- 30-day sales forecast with trend analysis + actionable tips + risk warning
+  * Requires 3+ sales records
+- Supply chain analysis (cost health, supplier tips, cost-saving strategies)
+- ASEAN export guide (market assessment, step-by-step export plan, platforms, regulations)
+
+--- CONTENT GENERATION ---
+- AI-generated marketing content for 5 platforms:
+  * Instagram caption + hashtags
+  * WhatsApp broadcast message
+  * TikTok video script
+  * Facebook post
+  * Promo/discount announcement
+- All content tailored to business name, product, country, language
+
+--- IMAGE VERIFICATION ---
+- SSM certificate photo verification (AI reads cert, extracts details, fuzzy name match)
+  * Auto-runs credit score after successful verification
+- Bank document verification (bank statement / passbook / e-wallet)
+  * Extracts account holder name, fuzzy match against profile
+- Auto-detects image type (SSM cert / payment receipt / other)
+
+--- PROFILE & DATA ---
+- View full business profile
+- View all stored data (PDPA data transparency)
+- Credit certificate display
+- Score breakdown by category
+- Reset all data (GDPR/PDPA right to erasure)
+
+--- GLOBAL COMMANDS (work from any state) ---
+MENU / PROFIL / SIJIL / PINJAMAN / SUMMARY / DATA
+BREAKDOWN / PECAHAN / RUJUK / REFER / KEMASKINI / UPDATE
+BATAL / CANCEL / LANGKAU / SKIP / ENGLISH / BM / RESET
+
+--- MULTI-COUNTRY SUPPORT ---
+- Malaysia: RM currency, SSM registration, TEKUN/PUNB/BSN loans, state list
+- Indonesia: Rp currency, NIB registration, KUR loans, province list
+- Philippines: ₱ currency, DTI/SEC registration, SBCorp loans, region list
+
+--- RELIABILITY FEATURES ---
+- Message deduplication (prevents double-processing from WhatsApp re-delivery)
+- Per-phone message queue (prevents race conditions from rapid messages)
+- Gemini API: 20s timeout, 2x retry with backoff
+- Meta API: 3x retry with exponential backoff, skips retry on auth errors
+
+================================================================
+PWA DASHBOARD (http://localhost:3000)
+================================================================
+
+--- LOGIN ---
+- MSME login: enter WhatsApp number → loads personal dashboard
+- Bank login: access code "bank2026" → loads portfolio view
+
+--- MOBILE VIEW (MSME Dashboard) ---
+- Credit score circle (animated arc, 0–100)
+- Score badge (Excellent / Good / Moderate / Low)
+- Business name + owner display
+- 4 stat cards: Total Revenue, Transactions, Avg per Sale, Best Sale
+- Trend indicators per stat
+- Loan pre-qualification CTA card (appears when score ≥ 70)
+- Score breakdown bars (6 categories, visual progress bars)
+- Score history chart (Chart.js line graph)
+- Sales activity chart (7 days / 30 days / All time toggle)
+- Loan readiness roadmap (7-item checklist with progress bar)
+- Recent sales list (latest transactions)
+- Credit certificate card (score, stars, status, cert ID)
+- Share credit score via WhatsApp button
+
+--- BANK/PORTFOLIO VIEW (Desktop) ---
+- Portfolio summary stats: Total MSMEs, Loan Ready (70+), Avg Credit Score, Total Revenue
+- Currency toggle: RM / Rp / ₱
+- MSME portfolio table (sortable, searchable, filterable by status)
+  * Pagination (10/25/50/100 per page)
+  * Filter: All / Loan Ready / In Progress / Building
+  * Search by name or business
+- Score distribution bars
+- Portfolio breakdown pie chart (Chart.js)
+- Revenue trends line chart
+- Loan pipeline view
+- ASEAN map (canvas-drawn) with color-coded user dots per state/region
+  * Green = Loan Ready (70+), Yellow = In Progress (50-69), Red = Building (<50)
+  * Hover tooltip with user details
+- Impact metrics (MSMEs onboarded, total transactions, loan-eligible, countries)
+- Financial inclusion progress bars per country
+- Country breakdown list
+- Export report button (PDF)
+
+--- MSME DETAIL MODAL ---
+- Click any row in portfolio table → modal with full MSME profile
+- Shows: name, business, product, credit score, total revenue, transactions, loan status
+- Recent sales list
+- Phone number row
+
+--- PRE-QUALIFICATION MODAL ---
+- For MSMEs with score ≥ 70
+- Summary: credit score, revenue, transactions, verified sales
+- Lists data being shared with bank
+- "Send to Partner Bank via WhatsApp" button
+- PDPA compliance note
+
+--- PWA FEATURES ---
+- Installable on Android/iOS (Add to Home Screen)
+- Service worker (offline support for static assets)
+- Install prompt banner
+- New version update banner (auto-detects SW update)
+- Pull-to-refresh (mobile)
+- Dark/light theme toggle
+- Language toggle (EN/BM)
+- Navigation drawer (settings, refresh, theme, language, logout)
+- Last updated timestamp
+- Responsive: mobile-first, desktop portfolio view
+
+================================================================
+TECH STACK
+================================================================
+- Backend:     Node.js + Express
+- Bot API:     Meta WhatsApp Business API (Graph API v18.0)
+- Database:    Firebase Firestore
+- AI:          Google Gemini 2.5 Flash (text, vision, audio)
+- Frontend:    Vanilla JS PWA (no framework)
+- Charts:      Chart.js
+- Fonts:       Syne + DM Sans (Google Fonts)
+
+================================================================

@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1778302521878,
+    "sender": "60195947322",
+    "item": "shirt",
+    "quantity": 5,
+    "price": 200,
+    "rawText": "sold 5 shirt for rm200",
+    "savedAt": "2026-05-09T04:55:21.878Z"
+  },
+  {
+    "id": 1778303901455,
+    "sender": "60195947322",
+    "item": "shirt",
+    "quantity": 5,
+    "price": 200,
+    "rawText": "sold 5 shirt for rm200",
+    "savedAt": "2026-05-09T05:18:21.455Z"
+  }
+]
