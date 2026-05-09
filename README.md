@@ -45,48 +45,48 @@ BizBuddy is the AI agent that turns invisible MSMEs into bankable businesses thr
          │                                      │
          │ messages                             │ HTTP
          v                                      v
-┌─────────────────┐                    ┌──────────────────┐
-│  Meta WhatsApp  │                    │   PWA            │
-│  Business API   │                    │   (3 surfaces)   │
-└────────┬────────┘                    │   - Landing      │
-         │                             │   - Dashboard    │
-         │ webhook                     │   - Bank Portal  │
-         v                             └────────┬─────────┘
+┌─────────────────┐                    ┌───────────────────┐
+│  Meta WhatsApp  │                    │   PWA             │
+│  Business API   │                    │   (3 surfaces)    │
+└────────┬────────┘                    │   - Landing       │
+         │                             │   - Dashboard     │
+         │ webhook                     │   - Bank Portal   │
+         v                             └─────────┬─────────┘
 ┌────────────────────────────────────────────────┴──────────┐
-│                                                            │
-│              BizBuddy Express Server (index.js)            │
-│                                                            │
-│  ┌──────────────┐    ┌──────────────┐    ┌─────────────┐ │
-│  │  /webhook    │    │ /notify_user │    │ /api/match- │ │
-│  │  Handler     │    │  Endpoint    │    │   loans     │ │
-│  └──────┬───────┘    └──────┬───────┘    └──────┬──────┘ │
-│         │                   │                    │         │
-│         v                   v                    v         │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │  Per-phone Queue + Deduplication                 │    │
-│  └─────────────────┬────────────────────────────────┘    │
-│                    │                                       │
+│                                                           │
+│              BizBuddy Express Server (index.js)           │
+│                                                           │
+│  ┌──────────────┐    ┌──────────────┐    ┌─────────────┐  │
+│  │  /webhook    │    │ /notify_user │    │ /api/match- │  │
+│  │  Handler     │    │  Endpoint    │    │   loans     │  │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬──────┘  │
+│         │                   │                    │        │
+│         v                   v                    v        │
+│  ┌──────────────────────────────────────────────────┐     │
+│  │  Per-phone Queue + Deduplication                 │     │
+│  └─────────────────┬────────────────────────────────┘     │
+│                    │                                      │
 │         ┌──────────┴──────────┐                           │
-│         v                     v                            │
+│         v                     v                           │
 │  ┌────────────┐         ┌──────────────┐                  │
 │  │  State     │         │  Loan Agent  │                  │
 │  │  Machine   │         │  + Matcher   │                  │
 │  │  (text.js) │         │  + Scorer    │                  │
 │  └─────┬──────┘         └──────┬───────┘                  │
-│        │                       │                           │
-└────────┼───────────────────────┼───────────────────────────┘
+│        │                       │                          │
+└────────┼───────────────────────┼──────────────────────────┘
          │                       │
-    ┌────v─────┐          ┌──────v────────┐
-    │  Gemini  │          │   Firestore   │
-    │  2.5     │          │   4 collections│
-    │  Flash   │          │   - users     │
-    │          │          │   - loan_     │
-    │  • Text  │          │     products  │
-    │  • Vision│          │   - loan_     │
-    │  • Audio │          │     applications│
-    │          │          │   - landing_  │
-    │          │          │     signups   │
-    └──────────┘          └───────────────┘
+    ┌────v─────┐          ┌──────v──────────┐
+    │  Gemini  │          │   Firestore     │
+    │  2.5     │          │   4 collections │
+    │  Flash   │          │   - users       │
+    │          │          │   - loan_       │
+    │ • Text   │          │     products    │
+    │ • Vision │          │   - loan_       │
+    │ • Audio  │          │     applications│
+    │          │          │   - landing_    │
+    │          │          │     signups     │
+    └──────────┘          └─────────────────┘
 ```
 
 ### Tech Stack
@@ -344,11 +344,12 @@ Alternative credit scoring is the unlock: without credit identity, MSMEs can't a
 
 ## Team
 
-[Your team names + roles]
+- MUHAMMAD ADAM HAIKAL BIN MOHD NOR AZAM - Leader + Developer
+- AJWAD BIN MOHD TAHRIR - PWA Developer
+- NURDEENA SOFIYA BINTI ZAMZURI - Technical Documenter
+- NUR SAKINAH BINTI MUHAMMAD KAMIL NASARUDDIN - UI/UX Designer
+- DAWNA DOWE AJAN - Tester
 
-## License
-
-MIT
 
 ## Acknowledgments
 
