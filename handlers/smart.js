@@ -37,38 +37,77 @@ Message: "${text}"
 
 Reply with ONLY the intent word, nothing else.`;
 
+    const lowerText = text.toLowerCase().trim();
+    const hasNumber = /\d/.test(text);
+
+    const SALE_KW = ['jual','sold','dapat','terima','sale','jualan','pelanggan','customer','hasil'];
+    const EXPENSE_KW = ['beli','bayar','bought','paid','pay','purchase','kos','belanja','spend','spent','modal','supplier','stok','stock'];
+    const SCORE_KW = ['skor','score','kredit','markah','credit','point'];
+    const SUMMARY_KW = ['ringkasan','summary','jumlah','total','berapa','pendapatan','revenue'];
+    const MENU_KW = ['menu','help','bantuan','pilihan','option'];
+
     let intent = 'unknown';
-    try {
-        intent = (await genText(intentPrompt)).toLowerCase().replace(/['"`]/g, '');
-    } catch { /* fallback */ }
 
-    if (intent === 'log_sale') {
-        const extractPrompt = `Extract sale information from: "${text}"\nReturn ONLY valid JSON:\n{"amount": number, "item": "string"}\nIf cannot extract amount use 0.`;
-        let sale = { amount: 0, item: text };
-        try { sale = parseJson(await genText(extractPrompt)); } catch { /* fallback */ }
-
-        await userRef.update({
-            sales: FieldValue.arrayUnion({ amount: sale.amount, item: sale.item, date: today() }),
-        });
-        await sendMessage(phone, lang === 'bm'
-            ? `✅ *Jualan direkod terus!*\n\n💵 Jumlah: ${cur}${sale.amount}\n📦 Item: ${sale.item}\n\nTaip *MENU* untuk pilihan lain.`
-            : `✅ *Sale recorded directly!*\n\n💵 Amount: ${cur}${sale.amount}\n📦 Item: ${sale.item}\n\nType *MENU* for other options.`
-        );
-        return;
+    if (hasNumber && EXPENSE_KW.some(kw => lowerText.includes(kw))) {
+        intent = 'log_expense';
+    } else if (hasNumber && SALE_KW.some(kw => lowerText.includes(kw))) {
+        intent = 'log_sale';
+    } else if (hasNumber && lowerText.includes('rm')) {
+        intent = 'log_sale';
+    } else if (SCORE_KW.some(kw => lowerText.includes(kw))) {
+        intent = 'check_score';
+    } else if (SUMMARY_KW.some(kw => lowerText.includes(kw))) {
+        intent = 'check_summary';
+    } else if (MENU_KW.some(kw => lowerText.includes(kw))) {
+        intent = 'show_menu';
+    } else {
+        try {
+            const geminiIntent = (await genText(intentPrompt)).toLowerCase().replace(/['"`]/g, '').trim();
+            const validIntents = ['log_sale','log_expense','check_score','check_summary','ask_ai','show_menu','unknown'];
+            if (validIntents.includes(geminiIntent)) intent = geminiIntent;
+        } catch {
+            console.error('[smartHandle] Gemini intent failed, using keyword result:', intent);
+        }
     }
 
-    if (intent === 'log_expense') {
-        const extractPrompt = `Extract expense information from: "${text}"\nReturn ONLY valid JSON:\n{"amount": number, "item": "string"}\nIf cannot extract amount use 0.`;
-        let expense = { amount: 0, item: text };
-        try { expense = parseJson(await genText(extractPrompt)); } catch { /* fallback */ }
+    console.log('[smartHandle] intent:', intent, 'for:', text);
 
-        await userRef.update({
-            expenses: FieldValue.arrayUnion({ amount: expense.amount, item: expense.item, date: today() }),
-        });
-        await sendMessage(phone, lang === 'bm'
-            ? `✅ *Perbelanjaan direkod!*\n\n💸 Jumlah: ${cur}${expense.amount}\n📦 Item: ${expense.item}\n\nTaip *MENU* untuk pilihan lain.`
-            : `✅ *Expense recorded!*\n\n💸 Amount: ${cur}${expense.amount}\n📦 Item: ${expense.item}\n\nType *MENU* for other options.`
-        );
+    if (intent === 'log_sale' || intent === 'log_expense') {
+        const amountPatterns = [
+            /(?:rm|rp|₱|myr)\s*(\d+(?:\.\d{1,2})?)/i,
+            /(\d+(?:\.\d{1,2})?)\s*(?:rm|rp|₱|ringgit|rupiah)/i,
+            /(\d+(?:\.\d{1,2})?)/,
+        ];
+        let amount = 0;
+        for (const pattern of amountPatterns) {
+            const match = text.match(pattern);
+            if (match) { amount = parseFloat(match[1]); if (amount > 0) break; }
+        }
+        let item = text
+            .replace(/(?:rm|rp|₱|ringgit|rupiah)\s*\d+(?:\.\d+)?/gi, '')
+            .replace(/\d+(?:\.\d+)?\s*(?:rm|rp|₱|ringgit|rupiah)/gi, '')
+            .replace(/\b\d+\b/g, '')
+            .replace(/(?:jual|beli|bayar|sold|bought|paid|dapat|terima|rm|rp|jualan)\b/gi, '')
+            .replace(/\s+/g, ' ').trim().substring(0, 50);
+        if (!item || item.length < 2) item = 'item';
+
+        const isExpense = intent === 'log_expense';
+        const record = { amount, item, date: today() };
+
+        if (amount > 0) {
+            await userRef.update({
+                [isExpense ? 'expenses' : 'sales']: FieldValue.arrayUnion(record),
+            });
+            await sendMessage(phone, lang === 'bm'
+                ? `✅ *${isExpense ? 'Perbelanjaan' : 'Jualan'} direkod!*\n\n${isExpense ? '💸' : '💵'} Jumlah: ${cur}${amount}\n📦 Item: ${item}\n\nTaip *MENU* untuk pilihan lain.`
+                : `✅ *${isExpense ? 'Expense' : 'Sale'} recorded!*\n\n${isExpense ? '💸' : '💵'} Amount: ${cur}${amount}\n📦 Item: ${item}\n\nType *MENU* for other options.`
+            );
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? `⚠️ Tidak dapat kesan jumlah. Cuba: _"Jual nasi lemak RM15"_\n\nTaip *MENU* untuk kembali`
+                : `⚠️ Couldn't detect amount. Try: _"Sold nasi lemak RM15"_\n\nType *MENU* to go back`
+            );
+        }
         return;
     }
 
