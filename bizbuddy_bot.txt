@@ -1,0 +1,3253 @@
+// ============================================================
+// FILE: config.js
+// ============================================================
+
+const COUNTRY_CONFIG = {
+    MY: {
+        name: 'Malaysia', flag: '🇲🇾', currency: 'RM',
+        loan_program: 'TEKUN', loan_amount: 'RM50,000', loan_rate: '4%',
+        registration: 'SSM', reg_url: 'ssm.com.my',
+        reg_question_bm: 'Adakah perniagaan awak dah *daftar SSM*?',
+        reg_question_en: 'Is your business *registered with SSM*?',
+        income_examples: 'RM500, RM2000, RM5000',
+        sale_example_bm: 'Jual 10 bekas kuih dapat RM150',
+        sale_example_en: 'Sold 10 boxes of cookies for RM150',
+        states: {
+            '1': 'Johor', '2': 'Kedah', '3': 'Kelantan', '4': 'Melaka',
+            '5': 'Negeri Sembilan', '6': 'Pahang', '7': 'Perak', '8': 'Perlis',
+            '9': 'Pulau Pinang', '10': 'Sabah', '11': 'Sarawak', '12': 'Selangor',
+            '13': 'Terengganu', '14': 'KL', '15': 'Putrajaya', '16': 'Labuan',
+        },
+    },
+    ID: {
+        name: 'Indonesia', flag: '🇮🇩', currency: 'Rp',
+        loan_program: 'KUR (Kredit Usaha Rakyat)', loan_amount: 'Rp500 juta', loan_rate: '6%',
+        registration: 'NIB', reg_url: 'oss.go.id',
+        reg_question_bm: 'Adakah perniagaan awak dah *daftar NIB*?',
+        reg_question_en: 'Is your business *registered with NIB (OSS)*?',
+        income_examples: 'Rp2jt, Rp5jt, Rp10jt',
+        sale_example_bm: 'Jual 10 bungkus nasi dapat Rp500rb',
+        sale_example_en: 'Sold 10 packs of food for Rp500k',
+        states: {
+            '1': 'Jakarta', '2': 'Jawa Barat', '3': 'Jawa Tengah', '4': 'Jawa Timur',
+            '5': 'Bali', '6': 'Sumatera Utara', '7': 'Sumatera Barat', '8': 'Sumatera Selatan',
+            '9': 'Kalimantan', '10': 'Sulawesi', '11': 'Papua', '12': 'Yogyakarta',
+        },
+    },
+    PH: {
+        name: 'Philippines', flag: '🇵🇭', currency: '₱',
+        loan_program: 'SB Corp (Small Business Corp)', loan_amount: '₱500,000', loan_rate: '8%',
+        registration: 'DTI', reg_url: 'bnrs.dti.gov.ph',
+        reg_question_bm: 'Adakah perniagaan awak dah *daftar DTI*?',
+        reg_question_en: 'Is your business *registered with DTI*?',
+        income_examples: '₱10k, ₱30k, ₱50k',
+        sale_example_bm: 'Jual 10 item dapat ₱5000',
+        sale_example_en: 'Sold 10 items for ₱5000',
+        states: {
+            '1': 'Metro Manila', '2': 'Cebu', '3': 'Davao', '4': 'Calabarzon',
+            '5': 'Central Luzon', '6': 'Western Visayas', '7': 'Central Visayas',
+            '8': 'Northern Mindanao', '9': 'Ilocos', '10': 'Bicol',
+        },
+    },
+};
+
+function getCountry(userData) {
+    const code = (userData && userData.country) || 'MY';
+    return COUNTRY_CONFIG[code] || COUNTRY_CONFIG.MY;
+}
+
+function getCurrency(userData) {
+    return getCountry(userData).currency;
+}
+
+function isEnglish(userData) {
+    return (userData && userData.language) === 'en';
+}
+
+function today() {
+    return new Date().toISOString().split('T')[0];
+}
+
+module.exports = { COUNTRY_CONFIG, getCountry, getCurrency, isEnglish, today };
+
+
+// ============================================================
+// FILE: db.js
+// ============================================================
+
+require('dotenv').config();
+const admin = require('firebase-admin');
+
+const firebaseCreds = JSON.parse(
+    Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString()
+);
+
+admin.initializeApp({ credential: admin.credential.cert(firebaseCreds) });
+
+const db = admin.firestore();
+const FieldValue = admin.firestore.FieldValue;
+
+module.exports = { db, FieldValue };
+
+
+// ============================================================
+// FILE: gemini.js
+// ============================================================
+
+require('dotenv').config();
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+const TIMEOUT_MS = 20000;
+const MAX_RETRIES = 2;
+
+function withTimeout(promise, ms) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini timeout')), ms)),
+    ]);
+}
+
+async function withRetry(fn, retries = MAX_RETRIES) {
+    for (let i = 0; i <= retries; i++) {
+        try {
+            return await withTimeout(fn(), TIMEOUT_MS);
+        } catch (err) {
+            if (i === retries) throw err;
+            await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        }
+    }
+}
+
+async function genText(prompt) {
+    const result = await withRetry(() => model.generateContent(prompt));
+    return result.response.text().trim();
+}
+
+async function genTextWithImage(prompt, imageBuffer, mimeType = 'image/jpeg') {
+    const imagePart = { inlineData: { data: imageBuffer.toString('base64'), mimeType } };
+    const result = await withRetry(() => model.generateContent([prompt, imagePart]));
+    return result.response.text().trim();
+}
+
+async function genTextWithAudio(prompt, audioBuffer, mimeType = 'audio/ogg') {
+    const audioPart = { inlineData: { data: audioBuffer.toString('base64'), mimeType } };
+    const result = await withRetry(() => model.generateContent([prompt, audioPart]));
+    return result.response.text().trim();
+}
+
+function parseJson(raw) {
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    return JSON.parse(cleaned);
+}
+
+module.exports = { genText, genTextWithImage, genTextWithAudio, parseJson };
+
+
+// ============================================================
+// FILE: send.js
+// ============================================================
+
+require('dotenv').config();
+const axios = require('axios');
+
+const { WA_ACCESS_TOKEN, WA_PHONE_NUMBER_ID } = process.env;
+const MAX_RETRIES = 3;
+
+async function sendMessage(phone, text) {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const res = await axios.post(
+                `https://graph.facebook.com/v18.0/${WA_PHONE_NUMBER_ID}/messages`,
+                {
+                    messaging_product: 'whatsapp',
+                    to: phone,
+                    type: 'text',
+                    text: { body: text },
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${WA_ACCESS_TOKEN}`,
+                        'Content-Type': 'application/json',
+                    },
+                    timeout: 10000,
+                }
+            );
+            console.log(`[send] to=${phone} status=${res.status}`);
+            return;
+        } catch (err) {
+            const status = err.response?.status;
+            console.error(`[send ERROR] to=${phone} attempt=${attempt}/${MAX_RETRIES}`, err.response?.data || err.message);
+            // Don't retry auth errors or bad requests — only network/5xx
+            if (status && status < 500 && status !== 429) break;
+            if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, 1000 * attempt));
+        }
+    }
+}
+
+module.exports = { sendMessage };
+
+
+// ============================================================
+// FILE: features/profile.js
+// ============================================================
+
+const { getCountry, getCurrency } = require('../config');
+const { sendMessage } = require('../send');
+
+async function showProfile(phone, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const cc = getCountry(userData);
+    const sales = userData.sales || [];
+    const total = sales.reduce((s, x) => s + (x.amount || 0), 0);
+    const count = sales.length;
+    const score = userData.credit_score || (lang === 'bm' ? 'Belum dijana' : 'Not yet generated');
+    const scoreDate = userData.score_date || '-';
+
+    await sendMessage(phone, lang === 'bm'
+        ? `━━━━━━━━━━━━━━━━━━━━\n📋 *PROFIL PERNIAGAAN RASMI*\n━━━━━━━━━━━━━━━━━━━━\n👤 Nama: ${userData.owner_name || '-'}\n🏪 Perniagaan: ${userData.business_name || '-'}\n📦 Produk: ${userData.product || '-'}\n🌏 Negara: ${cc.flag} ${cc.name}\n📍 Negeri: ${userData.user_state || '-'}\n💵 Pendapatan Bulanan: ${userData.monthly_revenue || '-'}\n⏱️ Lama Beroperasi: ${userData.biz_age || '-'}\n🏦 Akaun Bank: ${userData.has_bank_account || '-'}\n📝 ${cc.registration}: ${userData.has_ssm || '-'}\n━━━━━━━━━━━━━━━━━━━━\n📊 Jumlah Jualan Direkod: ${cc.currency}${total}\n🔢 Bilangan Transaksi: ${count}\n⭐ Skor Kredit: ${score}\n📅 Tarikh Skor: ${scoreDate}\n━━━━━━━━━━━━━━━━━━━━\n🏷️ _Powered by BizBuddy_\n\nTaip *MENU* untuk kembali`
+        : `━━━━━━━━━━━━━━━━━━━━\n📋 *OFFICIAL BUSINESS PROFILE*\n━━━━━━━━━━━━━━━━━━━━\n👤 Name: ${userData.owner_name || '-'}\n🏪 Business: ${userData.business_name || '-'}\n📦 Product: ${userData.product || '-'}\n🌏 Country: ${cc.flag} ${cc.name}\n📍 State: ${userData.user_state || '-'}\n💵 Monthly Income: ${userData.monthly_revenue || '-'}\n⏱️ Years Operating: ${userData.biz_age || '-'}\n🏦 Bank Account: ${userData.has_bank_account || '-'}\n📝 ${cc.registration}: ${userData.has_ssm || '-'}\n━━━━━━━━━━━━━━━━━━━━\n📊 Total Recorded Sales: ${cc.currency}${total}\n🔢 Number of Transactions: ${count}\n⭐ Credit Score: ${score}\n📅 Score Date: ${scoreDate}\n━━━━━━━━━━━━━━━━━━━━\n🏷️ _Powered by BizBuddy_\n\nType *MENU* to go back`
+    );
+}
+
+async function showStoredData(phone, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const sales = userData.sales || [];
+    const expenses = userData.expenses || [];
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🔒 *DATA YANG DISIMPAN TENTANG AWAK*\n\n━━━━━━━━━━━━━━━━━━━━\n👤 Nama: ${userData.owner_name || '-'}\n🏪 Perniagaan: ${userData.business_name || '-'}\n📦 Produk: ${userData.product || '-'}\n💵 Pendapatan: ${userData.monthly_revenue || '-'}\n⏱️ Lama Beroperasi: ${userData.biz_age || '-'}\n🏦 Akaun Bank: ${userData.has_bank_account || '-'}\n📝 SSM: ${userData.has_ssm || '-'}\n⭐ Skor Kredit: ${userData.credit_score || '-'}\n📊 Jumlah Rekod Jualan: ${sales.length}\n📊 Jumlah Rekod Perbelanjaan: ${expenses.length}\n✅ Persetujuan: ${userData.consent_date || '-'}\n━━━━━━━━━━━━━━━━━━━━\n\n🗑️ Taip *RESET* untuk padam semua data awak\nTaip *MENU* untuk kembali`
+        : `🔒 *DATA STORED ABOUT YOU*\n\n━━━━━━━━━━━━━━━━━━━━\n👤 Name: ${userData.owner_name || '-'}\n🏪 Business: ${userData.business_name || '-'}\n📦 Product: ${userData.product || '-'}\n💵 Income: ${userData.monthly_revenue || '-'}\n⏱️ Years Operating: ${userData.biz_age || '-'}\n🏦 Bank Account: ${userData.has_bank_account || '-'}\n📝 SSM: ${userData.has_ssm || '-'}\n⭐ Credit Score: ${userData.credit_score || '-'}\n📊 Sales Records: ${sales.length}\n📊 Expense Records: ${expenses.length}\n✅ Consent Given: ${userData.consent_date || '-'}\n━━━━━━━━━━━━━━━━━━━━\n\n🗑️ Type *RESET* to delete all your data\nType *MENU* to go back`
+    );
+}
+
+async function showCertificate(phone, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const score = userData.credit_score || 0;
+    const scoreDate = userData.score_date || new Date().toISOString().split('T')[0];
+
+    if (!score) {
+        await sendMessage(phone, lang === 'bm'
+            ? '⚠️ Awak belum jana skor kredit lagi.\nTaip *MENU* → pilih *2* untuk jana skor kredit awak dahulu.'
+            : '⚠️ You haven\'t generated a credit score yet.\nType *MENU* → choose *2* to generate your credit score first.'
+        );
+        return;
+    }
+
+    let statusBm, statusEn, stars;
+    if (score >= 70) { statusBm = '✅ BERSEDIA UNTUK PINJAMAN'; statusEn = '✅ LOAN READY'; stars = score >= 85 ? '⭐⭐⭐⭐⭐' : '⭐⭐⭐⭐'; }
+    else if (score >= 50) { statusBm = '🔄 DALAM PROSES'; statusEn = '🔄 IN PROGRESS'; stars = '⭐⭐⭐'; }
+    else { statusBm = '📈 PERLU TINGKATKAN'; statusEn = '📈 NEEDS IMPROVEMENT'; stars = '⭐⭐'; }
+
+    const certId = `NC-${phone.slice(-4)}-${scoreDate.replace(/-/g, '')}`;
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🏆 ━━━━━━━━━━━━━━━━━━━━ 🏆\n*SIJIL KESEDIAAN KREDIT*\n🏆 ━━━━━━━━━━━━━━━━━━━━ 🏆\n\n👤 Nama: ${userData.owner_name || '-'}\n🏪 Perniagaan: ${userData.business_name || '-'}\n\n📊 SKOR KREDIT: *${score}/100*\n⭐ TAHAP: ${stars}\n🎯 STATUS: ${statusBm}\n\n📅 Tarikh Jana: ${scoreDate}\n🆔 ID: ${certId}\n\n━━━━━━━━━━━━━━━━━━━━\nSijil ini mengesahkan bahawa\nperniagaan ini telah merekod\naktiviti kewangan dan dinilai\noleh sistem BizBuddy AI.\n━━━━━━━━━━━━━━━━━━━━\n🏷️ _Powered by BizBuddy_\n_bizbuddy.my_\n\n💡 Screenshot dan tunjukkan kepada bank!\nTaip *MENU* untuk kembali`
+        : `🏆 ━━━━━━━━━━━━━━━━━━━━ 🏆\n*CREDIT READINESS CERTIFICATE*\n🏆 ━━━━━━━━━━━━━━━━━━━━ 🏆\n\n👤 Name: ${userData.owner_name || '-'}\n🏪 Business: ${userData.business_name || '-'}\n\n📊 CREDIT SCORE: *${score}/100*\n⭐ LEVEL: ${stars}\n🎯 STATUS: ${statusEn}\n\n📅 Date Issued: ${scoreDate}\n🆔 ID: ${certId}\n\n━━━━━━━━━━━━━━━━━━━━\nThis certificate verifies that\nthis business has recorded\nfinancial activity and has been\nassessed by BizBuddy AI.\n━━━━━━━━━━━━━━━━━━━━\n🏷️ _Powered by BizBuddy_\n_bizbuddy.my_\n\n💡 Screenshot and show to your bank!\nType *MENU* to go back`
+    );
+}
+
+async function showScoreBreakdown(phone, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const cc = getCountry(userData);
+    const score = userData.credit_score || 0;
+    const breakdown = userData.score_breakdown || {};
+
+    if (!score || !Object.keys(breakdown).length) {
+        await sendMessage(phone, lang === 'bm'
+            ? '⚠️ Awak belum jana skor kredit lagi.\nTaip *MENU* → pilih *2* untuk jana skor kredit dahulu.'
+            : '⚠️ You haven\'t generated a credit score yet.\nType *MENU* → choose *2* to generate your score first.'
+        );
+        return;
+    }
+
+    const categories = {
+        consistency:    { max: 25, bm: 'Konsistensi Jualan', en: 'Sales Consistency' },
+        revenue:        { max: 20, bm: 'Kekuatan Hasil', en: 'Revenue Strength' },
+        age:            { max: 15, bm: 'Umur Perniagaan', en: 'Business Age' },
+        formalization:  { max: 20, bm: `Formalisasi (${cc.registration})`, en: `Formalization (${cc.registration})` },
+        volume:         { max: 10, bm: 'Jumlah Rekod', en: 'Record Volume' },
+        expenses:       { max: 10, bm: 'Disiplin Perbelanjaan', en: 'Expense Discipline' },
+    };
+
+    let lines = '';
+    let weakestKey = null, weakestPct = 100;
+    for (const [key, info] of Object.entries(categories)) {
+        const val = breakdown[key] || 0;
+        const pct = Math.round((val / info.max) * 100);
+        const filled = Math.round(pct / 10);
+        const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+        const label = lang === 'bm' ? info.bm : info.en;
+        lines += `  ${label}\n  [${bar}] ${val}/${info.max}\n\n`;
+        if (pct < weakestPct) { weakestPct = pct; weakestKey = key; }
+    }
+
+    const weakestLabel = weakestKey ? (lang === 'bm' ? categories[weakestKey].bm : categories[weakestKey].en) : '';
+
+    await sendMessage(phone, lang === 'bm'
+        ? `📊 *PECAHAN SKOR KREDIT*\n\nSkor Keseluruhan: *${score}/100*\n\n${lines}⚡ *Fokus tingkatkan:* ${weakestLabel}\n\nTaip *MENU* untuk kembali`
+        : `📊 *CREDIT SCORE BREAKDOWN*\n\nOverall Score: *${score}/100*\n\n${lines}⚡ *Focus on improving:* ${weakestLabel}\n\nType *MENU* to go back`
+    );
+}
+
+module.exports = { showProfile, showStoredData, showCertificate, showScoreBreakdown };
+
+
+// ============================================================
+// FILE: features/loan.js
+// ============================================================
+
+const { getCountry, getCurrency } = require('../config');
+const { sendMessage } = require('../send');
+
+async function showLoanChecklist(phone, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const cc = getCountry(userData);
+    const sales = userData.sales || [];
+
+    const hasProfile = !!userData.owner_name;
+    const hasSales = sales.length > 0;
+    const has10Txn = sales.length >= 10;
+    const hasBank = (userData.has_bank_account || '').toLowerCase().startsWith('y');
+    const hasSsm = (userData.has_ssm || '').toLowerCase().startsWith('y');
+    const hasScore = (userData.credit_score || 0) >= 60;
+    let has30Days = false;
+    if (sales.length >= 2) {
+        const dates = sales.map(s => s.date).filter(Boolean).sort();
+        if (dates.length >= 2) {
+            try {
+                const diff = (new Date(dates[dates.length - 1]) - new Date(dates[0])) / 86400000;
+                has30Days = diff >= 30;
+            } catch { /* ignore */ }
+        }
+    }
+
+    const reg = cc.registration;
+    const checks = [
+        [hasProfile,  lang === 'bm' ? 'Profil perniagaan wujud' : 'Business profile created',                lang === 'bm' ? 'Daftar profil awak' : 'Register your profile'],
+        [hasSales,    lang === 'bm' ? 'Rekod jualan pertama' : 'First sale recorded',                        lang === 'bm' ? 'Rekod jualan pertama awak' : 'Record your first sale'],
+        [has10Txn,    lang === 'bm' ? `10+ transaksi (${sales.length}/10)` : `10+ transactions (${sales.length}/10)`,  lang === 'bm' ? 'Rekod lebih banyak jualan' : 'Record more sales'],
+        [has30Days,   lang === 'bm' ? '30 hari rekod jualan' : '30 days of sales records',                  lang === 'bm' ? 'Terus rekod setiap hari' : 'Keep recording daily'],
+        [hasBank,     lang === 'bm' ? 'Ada akaun bank perniagaan' : 'Has business bank account',             lang === 'bm' ? 'Buka akaun bank perniagaan' : 'Open a business bank account'],
+        [hasSsm,      lang === 'bm' ? `Berdaftar ${reg}` : `${reg} registered`,                             lang === 'bm' ? `Daftar ${reg} di ${cc.reg_url}` : `Register at ${cc.reg_url}`],
+        [hasScore,    lang === 'bm' ? `Skor kredit 60+ (kini: ${userData.credit_score || '?'})` : `Credit score 60+ (now: ${userData.credit_score || '?'})`, lang === 'bm' ? 'Jana skor kredit → pilih 2' : 'Generate credit score → choose 2'],
+    ];
+
+    const done = checks.filter(c => c[0]).length;
+    const total = checks.length;
+    const pct = Math.round((done / total) * 100);
+    const filled = Math.round(pct / 10);
+    const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+
+    let lines = '';
+    for (const [check, label, action] of checks) {
+        lines += check ? `✅ ${label}\n` : `⬜ ${label}\n    ↳ ${action}\n`;
+    }
+
+    let status;
+    if (pct === 100) status = lang === 'bm' ? `🎉 TAHNIAH! Awak layak mohon pinjaman ${cc.loan_program}!` : `🎉 CONGRATULATIONS! You qualify for a ${cc.loan_program} loan!`;
+    else if (pct >= 70) status = lang === 'bm' ? `🔥 Hampir layak! Siapkan ${total - done} lagi syarat.` : `🔥 Almost there! Complete ${total - done} more requirements.`;
+    else if (pct >= 40) status = lang === 'bm' ? `💪 Dalam proses. Perlukan ${total - done} lagi syarat.` : `💪 In progress. Need ${total - done} more requirements.`;
+    else status = lang === 'bm' ? `📈 Baru bermula. Perlukan ${total - done} lagi syarat.` : `📈 Just starting. Need ${total - done} more requirements.`;
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🏦 *SENARAI SEMAK PINJAMAN ${cc.loan_program.toUpperCase()}*\n\nKemajuan: [${bar}] ${pct}%\n(${done}/${total} syarat dipenuhi)\n\n${lines}\n${status}\n\n━━━━━━━━━━━━━━━━━━━━\n💡 ${cc.loan_program}: sehingga ${cc.loan_amount}\n💡 Faedah rendah: ${cc.loan_rate} setahun\n━━━━━━━━━━━━━━━━━━━━\nTaip *MENU* untuk kembali`
+        : `🏦 *${cc.loan_program.toUpperCase()} LOAN READINESS CHECKLIST*\n\nProgress: [${bar}] ${pct}%\n(${done}/${total} requirements met)\n\n${lines}\n${status}\n\n━━━━━━━━━━━━━━━━━━━━\n💡 ${cc.loan_program}: up to ${cc.loan_amount}\n💡 Low interest: ${cc.loan_rate} per year\n━━━━━━━━━━━━━━━━━━━━\nType *MENU* to go back`
+    );
+}
+
+async function showLoanReferral(phone, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const cc = getCountry(userData);
+    const cur = cc.currency;
+    const score = userData.credit_score || 0;
+
+    if (!score || score < 70) {
+        const needed = 70 - (score || 0);
+        await sendMessage(phone, lang === 'bm'
+            ? `⚠️ *Skor kredit awak belum mencukupi untuk rujukan pinjaman.*\n\nSkor semasa: ${score}/100\nSkor minimum: 70/100\nPerlukan: +${needed} lagi mata\n\n💡 Cara tingkatkan skor:\n• Rekod lebih banyak jualan setiap hari\n• Rekod perbelanjaan awak\n• Daftar ${cc.registration} jika belum\n• Buka akaun bank perniagaan\n\nTaip *PECAHAN* untuk lihat pecahan skor\nTaip *MENU* untuk kembali`
+            : `⚠️ *Your credit score is not yet sufficient for loan referral.*\n\nCurrent score: ${score}/100\nMinimum required: 70/100\nNeed: +${needed} more points\n\n💡 How to improve:\n• Record more sales daily\n• Track your expenses\n• Register with ${cc.registration} if not done\n• Open a business bank account\n\nType *BREAKDOWN* to see score details\nType *MENU* to go back`
+        );
+        return;
+    }
+
+    const sales = userData.sales || [];
+    const totalSales = sales.reduce((s, x) => s + (x.amount || 0), 0);
+    const txnCount = sales.length;
+    const scoreDate = userData.score_date || '-';
+    const certId = `NC-${phone.slice(-4)}-${scoreDate.replace(/-/g, '')}`;
+    const loan = cc.loan_program;
+
+    const referralMsg = lang === 'bm'
+        ? `📋 PERMOHONAN PENILAIAN PINJAMAN\n${'='.repeat(35)}\n\nKepada: Pegawai ${loan}\n\nSaya ingin memohon penilaian pinjaman mikro.\n\nMAKLUMAT PEMOHON:\n• Nama: ${userData.owner_name || '-'}\n• Perniagaan: ${userData.business_name || '-'}\n• Produk/Perkhidmatan: ${userData.product || '-'}\n• Pendapatan Bulanan: ${userData.monthly_revenue || '-'}\n• Negara: ${cc.flag} ${cc.name}\n• Negeri: ${userData.user_state || '-'}\n\nREKOD KEWANGAN (BizBuddy):\n• Jumlah Jualan Direkod: ${cur}${totalSales}\n• Bilangan Transaksi: ${txnCount}\n• Skor Kredit BizBuddy: ${score}/100\n• ID Sijil: ${certId}\n• Tarikh Skor: ${scoreDate}\n\nSkor ini dijana oleh BizBuddy AI berdasarkan 6 kriteria yang telus.\n\nTerima kasih.\n${'='.repeat(35)}\nPowered by BizBuddy | bizbuddy.my`
+        : `📋 LOAN ASSESSMENT REQUEST\n${'='.repeat(35)}\n\nTo: ${loan} Officer\n\nI would like to request a micro-loan assessment.\n\nAPPLICANT INFO:\n• Name: ${userData.owner_name || '-'}\n• Business: ${userData.business_name || '-'}\n• Product/Service: ${userData.product || '-'}\n• Monthly Income: ${userData.monthly_revenue || '-'}\n• Country: ${cc.flag} ${cc.name}\n• State: ${userData.user_state || '-'}\n\nFINANCIAL RECORDS (BizBuddy):\n• Total Recorded Sales: ${cur}${totalSales}\n• Number of Transactions: ${txnCount}\n• BizBuddy Credit Score: ${score}/100\n• Certificate ID: ${certId}\n• Score Date: ${scoreDate}\n\nThis score was generated by BizBuddy AI based on 6 transparent criteria.\n\nThank you.\n${'='.repeat(35)}\nPowered by BizBuddy | bizbuddy.my`;
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🏦 *RUJUKAN PINJAMAN SEDIA!*\n\nMesej berikut telah dijana untuk awak.\n📋 *Copy dan hantar* kepada pegawai ${loan}:\n\n━━━━━━━━━━━━━━━━━━━━\n${referralMsg}\n━━━━━━━━━━━━━━━━━━━━\n\n📱 *Langkah seterusnya:*\n1. Screenshot mesej di atas\n2. Hantar ke pejabat ${loan} terdekat\n3. Atau email ke pegawai pinjaman\n\nTaip *SIJIL* untuk sijil kredit awak\nTaip *MENU* untuk kembali`
+        : `🏦 *LOAN REFERRAL READY!*\n\nThe following message has been generated for you.\n📋 *Copy and send* to a ${loan} officer:\n\n━━━━━━━━━━━━━━━━━━━━\n${referralMsg}\n━━━━━━━━━━━━━━━━━━━━\n\n📱 *Next steps:*\n1. Screenshot the message above\n2. Send to your nearest ${loan} office\n3. Or email to a loan officer\n\nType *CERTIFICATE* for your credit certificate\nType *MENU* to go back`
+    );
+}
+
+module.exports = { showLoanChecklist, showLoanReferral };
+
+
+// ============================================================
+// FILE: features/summary.js
+// ============================================================
+
+const { getCurrency, today } = require('../config');
+const { genText } = require('../gemini');
+const { sendMessage } = require('../send');
+
+function getWeekStart() {
+    const d = new Date();
+    d.setDate(d.getDate() - d.getDay());
+    return d.toISOString().slice(0, 10);
+}
+
+function getMonthStart() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+async function showSalesSummary(phone, userRef) {
+    const snap = await userRef.get();
+    if (!snap.exists) return;
+    const userData = snap.data();
+    const lang = userData.language || 'bm';
+    const cur = getCurrency(userData);
+    const sales = userData.sales || [];
+    const expenses = userData.expenses || [];
+
+    if (!sales.length && !expenses.length) {
+        await sendMessage(phone, lang === 'bm'
+            ? '📊 *Ringkasan Jualan*\n\nAwak belum rekod sebarang jualan lagi.\nTaip *1* untuk rekod jualan pertama awak!\n\nTaip *MENU* untuk kembali'
+            : '📊 *Sales Summary*\n\nYou haven\'t recorded any sales yet.\nType *1* to record your first sale!\n\nType *MENU* to go back'
+        );
+        return;
+    }
+
+    const todayStr = today();
+    const weekStr = getWeekStart();
+    const monthStr = getMonthStart();
+
+    const sumAmounts = arr => arr.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+    const todaySales    = sumAmounts(sales.filter(s => s.date === todayStr));
+    const weekSales     = sumAmounts(sales.filter(s => s.date >= weekStr));
+    const monthSales    = sumAmounts(sales.filter(s => s.date >= monthStr));
+    const totalSales    = sumAmounts(sales);
+    const totalExpenses = sumAmounts(expenses);
+    const profit        = totalSales - totalExpenses;
+    const margin        = totalSales > 0 ? Math.round((profit / totalSales) * 100) : 0;
+    const count         = sales.length;
+    const average       = count > 0 ? Math.round(totalSales / count) : 0;
+
+    // Top item by total revenue
+    const itemMap = {};
+    sales.forEach(s => {
+        const key = (s.item || 'unknown').toLowerCase();
+        itemMap[key] = (itemMap[key] || 0) + (Number(s.amount) || 0);
+    });
+    const topItem = Object.entries(itemMap).sort((a, b) => b[1] - a[1])[0];
+    const topItemDisplay = topItem ? `${topItem[0]} (${cur}${topItem[1].toLocaleString()})` : '-';
+
+    // Last 5 sales sorted by date descending
+    const recent = [...sales]
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        .slice(0, 5);
+    const recentText = recent.map(s =>
+        `• ${cur}${(Number(s.amount) || 0).toLocaleString()} — ${s.item || '-'} (${s.date || '-'})`
+    ).join('\n');
+
+    let health;
+    if (margin >= 50)     health = lang === 'bm' ? '🟢 Sihat'     : '🟢 Healthy';
+    else if (margin >= 20) health = lang === 'bm' ? '🟡 Sederhana' : '🟡 Moderate';
+    else if (margin > 0)   health = lang === 'bm' ? '🔴 Rendah'    : '🔴 Low';
+    else                   health = lang === 'bm' ? '⚠️ Rugi'      : '⚠️ Loss';
+
+    const statsMsg = lang === 'bm'
+        ? `📊 *Ringkasan Kewangan Awak*\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `📅 Hari ini: *${cur}${todaySales.toLocaleString()}*\n` +
+          `📅 Minggu ini: *${cur}${weekSales.toLocaleString()}*\n` +
+          `📅 Bulan ini: *${cur}${monthSales.toLocaleString()}*\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `💵 Jumlah Jualan: ${cur}${totalSales.toLocaleString()}\n` +
+          `💸 Jumlah Perbelanjaan: ${cur}${totalExpenses.toLocaleString()}\n` +
+          `📈 *Keuntungan: ${cur}${profit.toLocaleString()}*\n` +
+          `📊 Margin: ${margin}% ${health}\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `🔢 Bilangan Transaksi: ${count}\n` +
+          `📈 Purata Per Transaksi: ${cur}${average.toLocaleString()}\n` +
+          `🏆 Item Terlaris: ${topItemDisplay}\n` +
+          `📦 Rekod Perbelanjaan: ${expenses.length}\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `📋 *5 Jualan Terkini:*\n${recentText}\n\n` +
+          `💡 _Rekod perbelanjaan: taip "beli bahan rm50"_\nTaip *MENU* untuk kembali`
+        : `📊 *Your Financial Summary*\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `📅 Today: *${cur}${todaySales.toLocaleString()}*\n` +
+          `📅 This week: *${cur}${weekSales.toLocaleString()}*\n` +
+          `📅 This month: *${cur}${monthSales.toLocaleString()}*\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `💵 Total Sales: ${cur}${totalSales.toLocaleString()}\n` +
+          `💸 Total Expenses: ${cur}${totalExpenses.toLocaleString()}\n` +
+          `📈 *Profit: ${cur}${profit.toLocaleString()}*\n` +
+          `📊 Margin: ${margin}% ${health}\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `🔢 Transactions: ${count}\n` +
+          `📈 Average Per Sale: ${cur}${average.toLocaleString()}\n` +
+          `🏆 Top Item: ${topItemDisplay}\n` +
+          `📦 Expense Records: ${expenses.length}\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `📋 *Last 5 Sales:*\n${recentText}\n\n` +
+          `💡 _Track expenses: type "bought supplies rm50"_\nType *MENU* to go back`;
+
+    await sendMessage(phone, statsMsg);
+
+    // Gemini trend + tip (per FEATURES.txt)
+    if (sales.length >= 3) {
+        try {
+            const langInstr = lang === 'bm' ? 'Bahasa Malaysia' : 'English';
+            const prompt = `You are a business advisor for a small ${lang === 'bm' ? 'Malaysian' : 'ASEAN'} SME.
+Business: ${userData.business_name || '-'}, Product: ${userData.product || '-'}
+Total sales: ${cur}${totalSales.toLocaleString()} across ${count} transactions
+Today: ${cur}${todaySales.toLocaleString()}, This month: ${cur}${monthSales.toLocaleString()}
+Profit margin: ${margin}%
+Top item: ${topItemDisplay}
+
+In ${langInstr}, write EXACTLY 2 short lines:
+TREND: [1 sentence honest observation about sales trend]
+TIP: [1 specific actionable business tip based on their data]`;
+
+            const aiInsight = await genText(prompt);
+            if (aiInsight && aiInsight.trim()) {
+                await sendMessage(phone, lang === 'bm'
+                    ? `💡 *Analisis AI:*\n\n${aiInsight}`
+                    : `💡 *AI Analysis:*\n\n${aiInsight}`
+                );
+            }
+        } catch { /* silently skip if Gemini fails */ }
+    }
+}
+
+module.exports = { showSalesSummary };
+
+
+// ============================================================
+// FILE: features/credit.js
+// ============================================================
+
+const { FieldValue } = require('../db');
+const { getCountry, getCurrency, today } = require('../config');
+const { genText } = require('../gemini');
+const { sendMessage } = require('../send');
+
+// Parse monthly revenue string → number. Handles: "RM2000", "2000-5000", "RM5k", "5,000"
+function parseMonthlyRevenue(str) {
+    if (!str) return 0;
+    const s = String(str).toLowerCase().replace(/,/g, '');
+    // Range: take midpoint
+    const rangeMatch = s.match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
+    if (rangeMatch) return (parseFloat(rangeMatch[1]) + parseFloat(rangeMatch[2])) / 2;
+    // "k" suffix
+    const kMatch = s.match(/(\d+(?:\.\d+)?)k/);
+    if (kMatch) return parseFloat(kMatch[1]) * 1000;
+    // Plain number
+    const plain = s.match(/(\d+(?:\.\d+)?)/);
+    return plain ? parseFloat(plain[1]) : 0;
+}
+
+// Parse business age string → months
+function parseBizAgeMonths(str) {
+    if (!str) return 0;
+    const s = String(str).toLowerCase();
+    const numMatch = s.match(/(\d+(?:\.\d+)?)/);
+    const num = numMatch ? parseFloat(numMatch[1]) : 0;
+    if (!num) return 0;
+    if (s.includes('year') || s.includes('tahun')) return Math.round(num * 12);
+    if (s.includes('month') || s.includes('bulan')) return Math.round(num);
+    // Default: treat bare number as years (most common user input)
+    return Math.round(num * 12);
+}
+
+function calculateCreditScore(userData) {
+    const sales = userData.sales || [];
+    const expenses = userData.expenses || [];
+    const totalSales = sales.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const count = sales.length;
+    const breakdown = {};
+
+    // 1. Transaction Consistency (25 pts)
+    // Measures how spread-out sales recording is over time
+    const uniqueDates = [...new Set(sales.map(s => s.date).filter(Boolean))].sort();
+    let consistencyScore = 0;
+    if (uniqueDates.length >= 20) consistencyScore = 25;
+    else if (uniqueDates.length >= 10) consistencyScore = 20;
+    else if (uniqueDates.length >= 5) consistencyScore = 14;
+    else if (uniqueDates.length >= 2) {
+        // Reward spread: ratio of unique days to day-span
+        try {
+            const spanDays = Math.max(
+                (new Date(uniqueDates[uniqueDates.length - 1]) - new Date(uniqueDates[0])) / 86400000,
+                1
+            );
+            const ratio = uniqueDates.length / spanDays;
+            consistencyScore = Math.round(Math.min(ratio, 1) * 8) + 2; // 2-10 pts
+        } catch { consistencyScore = 5; }
+    } else if (uniqueDates.length === 1) consistencyScore = 3;
+    breakdown.consistency = Math.min(consistencyScore, 25);
+
+    // 2. Revenue Strength (20 pts)
+    // Compares estimated monthly average vs stated monthly revenue
+    let revenueScore = 0;
+    const monthlyRev = parseMonthlyRevenue(userData.monthly_revenue);
+    if (monthlyRev > 0 && totalSales > 0) {
+        // Estimate months active from first sale date to today
+        let monthsActive = 1;
+        if (uniqueDates.length >= 2) {
+            try {
+                monthsActive = Math.max(
+                    (Date.now() - new Date(uniqueDates[0]).getTime()) / (30 * 86400000),
+                    1
+                );
+            } catch { monthsActive = 1; }
+        }
+        const avgMonthly = totalSales / monthsActive;
+        const ratio = avgMonthly / monthlyRev;
+        if (ratio >= 1.0) revenueScore = 20;
+        else if (ratio >= 0.75) revenueScore = 16;
+        else if (ratio >= 0.5) revenueScore = 12;
+        else if (ratio >= 0.25) revenueScore = 8;
+        else revenueScore = 4;
+    } else if (totalSales > 0) {
+        revenueScore = 6; // Has sales but no stated revenue
+    }
+    breakdown.revenue = Math.min(revenueScore, 20);
+
+    // 3. Business Age (15 pts)
+    // Declared age + months registered on platform
+    let totalMonths = parseBizAgeMonths(userData.biz_age);
+    if (userData.registered_date) {
+        try {
+            const monthsOnPlatform = Math.max(
+                Math.floor((Date.now() - new Date(userData.registered_date).getTime()) / (30 * 86400000)),
+                0
+            );
+            totalMonths += monthsOnPlatform;
+        } catch { /* ignore bad date */ }
+    }
+    let ageScore;
+    if (totalMonths >= 60) ageScore = 15;
+    else if (totalMonths >= 36) ageScore = 12;
+    else if (totalMonths >= 12) ageScore = 9;
+    else if (totalMonths >= 6) ageScore = 6;
+    else if (totalMonths >= 3) ageScore = 4;
+    else if (totalMonths > 0) ageScore = 2;
+    else ageScore = 1;
+    breakdown.age = Math.min(ageScore, 15);
+
+    // 4. Formalization (20 pts)
+    // SSM/registration: verified=10, declared unverified=7, unknown=2, no=0
+    // Bank account: same scale
+    const hasSsm = String(userData.has_ssm || '').toLowerCase();
+    const hasBank = String(userData.has_bank_account || '').toLowerCase();
+    const ssmYes = hasSsm.startsWith('y') || hasSsm.startsWith('s') || hasSsm === 'ada';
+    const ssmNo = hasSsm.startsWith('t') || hasSsm.startsWith('n') || hasSsm === 'belum';
+    const bankYes = hasBank.startsWith('y') || hasBank.startsWith('a') || hasBank === 'ada';
+    const bankNo = hasBank.startsWith('t') || hasBank.startsWith('n') || hasBank === 'belum';
+
+    let formalScore = 0;
+    if (ssmYes) formalScore += userData.ssm_verified ? 10 : 7;
+    else if (!ssmNo) formalScore += 2; // unanswered
+    if (bankYes) formalScore += userData.bank_verified ? 10 : 7;
+    else if (!bankNo) formalScore += 2; // unanswered
+    breakdown.formalization = Math.min(formalScore, 20);
+
+    // 5. Record Volume (10 pts)
+    let volScore;
+    if (count >= 30) volScore = 10;
+    else if (count >= 20) volScore = 8;
+    else if (count >= 10) volScore = 6;
+    else if (count >= 5) volScore = 4;
+    else if (count >= 1) volScore = 2;
+    else volScore = 0;
+    breakdown.volume = volScore;
+
+    // 6. Expense Discipline (10 pts)
+    const expCount = expenses.length;
+    let expScore;
+    if (expCount >= 10) expScore = 10;
+    else if (expCount >= 5) expScore = 7;
+    else if (expCount >= 2) expScore = 4;
+    else if (expCount >= 1) expScore = 2;
+    else expScore = 0;
+    breakdown.expenses = expScore;
+
+    const totalScore = Math.max(0, Math.min(
+        Object.values(breakdown).reduce((a, b) => a + b, 0),
+        100
+    ));
+
+    let level, levelEn;
+    if (totalScore >= 80)      { level = 'Cemerlang'; levelEn = 'Excellent'; }
+    else if (totalScore >= 60) { level = 'Baik';      levelEn = 'Good'; }
+    else if (totalScore >= 40) { level = 'Sederhana'; levelEn = 'Moderate'; }
+    else                       { level = 'Rendah';    levelEn = 'Low'; }
+
+    return { score: totalScore, level, levelEn, breakdown };
+}
+
+async function generateCreditScore(phone, userRef) {
+    const snap = await userRef.get();
+    if (!snap.exists) {
+        console.error('[generateCreditScore] user doc not found:', phone);
+        return;
+    }
+    const userData = snap.data();
+    const prevScore = userData.credit_score || 0;
+    const lang = userData.language || 'bm';
+    const cc = getCountry(userData);
+    const cur = cc.currency;
+    const reg = cc.registration;
+
+    const sales = userData.sales || [];
+    const totalSales = sales.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const count = sales.length;
+
+    const { score, level, levelEn, breakdown } = calculateCreditScore(userData);
+
+    await userRef.update({
+        credit_score: score,
+        score_date: today(),
+        score_breakdown: breakdown,
+        score_history: FieldValue.arrayUnion({ date: today(), score }),
+    });
+
+    // Language-correct labels for AI prompt
+    const isBm = lang === 'bm';
+    const labels = isBm ? {
+        score:   'SKOR',
+        level:   'TAHAP',
+        section: '📊 PECAHAN SKOR',
+        c1: 'Konsistensi Jualan',
+        c2: 'Kekuatan Hasil',
+        c3: 'Umur Perniagaan',
+        c4: 'Formalisasi',
+        c5: 'Jumlah Rekod',
+        c6: 'Disiplin Perbelanjaan',
+        reason: 'SEBAB',
+        steps:  'LANGKAH PENAMBAHBAIKAN',
+        step:   'LANGKAH',
+    } : {
+        score:   'SCORE',
+        level:   'LEVEL',
+        section: '📊 SCORE BREAKDOWN',
+        c1: 'Transaction Consistency',
+        c2: 'Revenue Strength',
+        c3: 'Business Age',
+        c4: 'Formalization',
+        c5: 'Record Volume',
+        c6: 'Expense Discipline',
+        reason: 'REASON',
+        steps:  'IMPROVEMENT STEPS',
+        step:   'STEP',
+    };
+    const displayLevel = isBm ? level : levelEn;
+    const langInstr = isBm ? 'Bahasa Malaysia' : 'English';
+
+    const prompt = `You are a credit advisor for small businesses. The credit score is ALREADY calculated — do NOT change it.
+Respond entirely in ${langInstr}.
+
+${labels.score}: ${score}/100
+${labels.level}: ${displayLevel}
+
+Score breakdown:
+- ${labels.c1}: ${breakdown.consistency}/25
+- ${labels.c2}: ${breakdown.revenue}/20
+- ${labels.c3}: ${breakdown.age}/15
+- ${labels.c4} (${reg} + Bank): ${breakdown.formalization}/20
+- ${labels.c5}: ${breakdown.volume}/10
+- ${labels.c6}: ${breakdown.expenses}/10
+
+Business: ${userData.business_name || '-'} | Product: ${userData.product || '-'}
+Monthly revenue stated: ${userData.monthly_revenue || '-'} | Total recorded: ${cur}${totalSales.toLocaleString()} (${count} transactions)
+
+Use EXACTLY this format (fill in [...] parts):
+${labels.score}: ${score}/100
+${labels.level}: ${displayLevel}
+
+${labels.section}:
+• ${labels.c1}: ${breakdown.consistency}/25
+• ${labels.c2}: ${breakdown.revenue}/20
+• ${labels.c3}: ${breakdown.age}/15
+• ${labels.c4}: ${breakdown.formalization}/20
+• ${labels.c5}: ${breakdown.volume}/10
+• ${labels.c6}: ${breakdown.expenses}/10
+
+${labels.reason}: [1 sentence explaining the overall score]
+
+${labels.steps}:
+${labels.step} 1: [specific actionable improvement]
+${labels.step} 2: [second improvement]
+${labels.step} 3: [third improvement]`;
+
+    let aiText = '';
+    try {
+        aiText = await genText(prompt);
+    } catch {
+        aiText = `${labels.score}: ${score}/100\n${labels.level}: ${displayLevel}\n\n${labels.section}:\n• ${labels.c1}: ${breakdown.consistency}/25\n• ${labels.c2}: ${breakdown.revenue}/20\n• ${labels.c3}: ${breakdown.age}/15\n• ${labels.c4}: ${breakdown.formalization}/20\n• ${labels.c5}: ${breakdown.volume}/10\n• ${labels.c6}: ${breakdown.expenses}/10`;
+    }
+
+    const loanNudge = score >= 60
+        ? (isBm
+            ? `\n🏦 Skor awak dah cukup baik — taip *5* untuk lihat pinjaman yang awak layak!`
+            : `\n🏦 Your score is strong enough — type *5* to see loans you qualify for!`)
+        : (isBm
+            ? `\n🏦 Skor rendah? Masih boleh cuba — taip *5* untuk lihat pilihan pinjaman awak`
+            : `\n🏦 Low score? Still worth trying — type *5* to explore loan options anyway`);
+
+    await sendMessage(phone, isBm
+        ? `📊 *Laporan Skor Kredit Awak*\n\n${aiText}\n\n━━━━━━━━━━━━━━━━━━━━\n🔬 _Skor dikira menggunakan 6 kriteria yang telus._\n━━━━━━━━━━━━━━━━━━━━\n\n💡 Rekod lebih banyak jualan untuk tingkatkan skor!${loanNudge}\nTaip *SIJIL* untuk sijil kredit awak\nTaip *MENU* untuk kembali`
+        : `📊 *Your Credit Score Report*\n\n${aiText}\n\n━━━━━━━━━━━━━━━━━━━━\n🔬 _Score calculated using 6 transparent criteria._\n━━━━━━━━━━━━━━━━━━━━\n\n💡 Record more sales to improve your score!${loanNudge}\nType *CERTIFICATE* for your credit certificate\nType *MENU* to go back`
+    );
+
+    try {
+        const { checkProactiveTrigger } = require('./loan_agent');
+        await checkProactiveTrigger(phone, userRef, score, prevScore);
+    } catch (e) {
+        console.error('[proactive trigger]', e.message);
+    }
+}
+
+module.exports = { calculateCreditScore, generateCreditScore };
+
+
+// ============================================================
+// FILE: features/loan_agent.js
+// ============================================================
+
+const { db } = require('../db');
+const { getCountry } = require('../config');
+const { genText, parseJson } = require('../gemini');
+const { sendMessage } = require('../send');
+
+// ── Label → numeric converters ────────────────────────────────────────────────
+
+function revenueToNum(label) {
+    if (!label) return 0;
+    const l = label.toLowerCase();
+    if (l.includes('50,000') && l.includes('+')) return 60000;
+    if (l.includes('50k+')) return 60000;
+    if (l.includes('20') && l.includes('50')) return 35000;
+    if (l.includes('20k') && l.includes('50k')) return 35000;
+    if (l.includes('5') && l.includes('20')) return 12500;
+    if (l.includes('5k') && l.includes('20k')) return 12500;
+    return 2500; // <5k or unknown
+}
+
+function ageToMonths(label) {
+    if (!label) return 0;
+    const l = label.toLowerCase();
+    if (l.includes('2+') || (l.includes('2') && l.includes('year') && l.includes('+'))) return 30;
+    if ((l.includes('1') && l.includes('2')) || (l.includes('1') && l.includes('year'))) return 18;
+    if (l.includes('6') && (l.includes('12') || l.includes('month'))) return 9;
+    return 3; // <6 months
+}
+
+// Parse free-text biz age like "1.5 tahun", "18 bulan", "2 years" → months
+function parseBizAgeStr(str) {
+    if (!str) return 0;
+    const s = String(str).toLowerCase();
+    const numMatch = s.match(/(\d+(?:\.\d+)?)/);
+    const num = numMatch ? parseFloat(numMatch[1]) : 0;
+    if (!num) return 0;
+    if (s.includes('year') || s.includes('tahun')) return Math.round(num * 12);
+    if (s.includes('month') || s.includes('bulan')) return Math.round(num);
+    return Math.round(num * 12); // bare number → treat as years
+}
+
+function loanAmountToNum(label) {
+    if (!label) return 10000;
+    const l = label.toLowerCase();
+    if (l.includes('200,000') || l.includes('200k+')) return 250000;
+    if (l.includes('50') && l.includes('200')) return 125000;
+    if (l.includes('50k') && l.includes('200k')) return 125000;
+    if (l.includes('10') && l.includes('50')) return 30000;
+    if (l.includes('10k') && l.includes('50k')) return 30000;
+    return 5000; // <10k
+}
+
+// ── Express Q&A handlers ──────────────────────────────────────────────────────
+
+async function handleExpressQ1(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const bizName = text.trim() || (userData.business_name || 'My Business');
+
+    await userRef.update({ 'express_loan_data.business_name': bizName, state: 'express_loan_q2' });
+
+    await sendMessage(phone, lang === 'bm'
+        ? `*${bizName}* — nama yang menarik! 🌟\n\nSoalan 2️⃣: Apa *jenis perniagaan* awak?\n\n1️⃣ 🍜 Makanan & Minuman\n2️⃣ 🛍️ Runcit / Perniagaan\n3️⃣ 🚚 Perkhidmatan\n4️⃣ 🏭 Pembuatan\n5️⃣ 📦 Lain-lain\n\n_Balas dengan nombor_`
+        : `*${bizName}* — great name! 🌟\n\nQuestion 2️⃣: What *type of business* is it?\n\n1️⃣ 🍜 Food & Beverage\n2️⃣ 🛍️ Retail / Trading\n3️⃣ 🚚 Services\n4️⃣ 🏭 Manufacturing\n5️⃣ 📦 Other\n\n_Reply with a number_`);
+}
+
+const INDUSTRY_MAP = {
+    '1': { en: 'Food & Beverage', bm: 'Makanan & Minuman' },
+    '2': { en: 'Retail / Trading', bm: 'Runcit / Perniagaan' },
+    '3': { en: 'Services', bm: 'Perkhidmatan' },
+    '4': { en: 'Manufacturing', bm: 'Pembuatan' },
+    '5': { en: 'Other', bm: 'Lain-lain' },
+};
+
+async function handleExpressQ2(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const entry = INDUSTRY_MAP[text.trim()];
+
+    if (!entry) {
+        await sendMessage(phone, lang === 'bm'
+            ? `Sila balas dengan nombor 1-5:\n1️⃣ Makanan & Minuman\n2️⃣ Runcit\n3️⃣ Perkhidmatan\n4️⃣ Pembuatan\n5️⃣ Lain-lain`
+            : `Please reply 1-5:\n1️⃣ Food & Beverage\n2️⃣ Retail\n3️⃣ Services\n4️⃣ Manufacturing\n5️⃣ Other`);
+        return;
+    }
+
+    const industry = entry[lang] || entry.en;
+    await userRef.update({ 'express_loan_data.industry': industry, state: 'express_loan_q3' });
+
+    await sendMessage(phone, lang === 'bm'
+        ? `✅ *${industry}* — noted!\n\nSoalan 3️⃣: Berapa lama perniagaan awak *beroperasi*?\n\n1️⃣ Bawah 6 bulan\n2️⃣ 6–12 bulan\n3️⃣ 1–2 tahun\n4️⃣ 2+ tahun\n\n_Balas dengan nombor_`
+        : `✅ *${industry}* — noted!\n\nQuestion 3️⃣: How long has your business been *operating*?\n\n1️⃣ Less than 6 months\n2️⃣ 6–12 months\n3️⃣ 1–2 years\n4️⃣ 2+ years\n\n_Reply with a number_`);
+}
+
+const AGE_MAP = {
+    '1': { en: 'Less than 6 months', bm: 'Bawah 6 bulan', months: 3 },
+    '2': { en: '6–12 months', bm: '6–12 bulan', months: 9 },
+    '3': { en: '1–2 years', bm: '1–2 tahun', months: 18 },
+    '4': { en: '2+ years', bm: '2+ tahun', months: 30 },
+};
+
+async function handleExpressQ3(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const entry = AGE_MAP[text.trim()];
+
+    if (!entry) {
+        await sendMessage(phone, lang === 'bm'
+            ? `Sila balas 1-4:\n1️⃣ Bawah 6 bulan\n2️⃣ 6–12 bulan\n3️⃣ 1–2 tahun\n4️⃣ 2+ tahun`
+            : `Please reply 1-4:\n1️⃣ Less than 6 months\n2️⃣ 6–12 months\n3️⃣ 1–2 years\n4️⃣ 2+ years`);
+        return;
+    }
+
+    await userRef.update({
+        'express_loan_data.biz_age_label': entry[lang] || entry.en,
+        'express_loan_data.biz_age_months': entry.months,
+        state: 'express_loan_q4',
+    });
+
+    await sendMessage(phone, lang === 'bm'
+        ? `✅ Noted!\n\nSoalan 4️⃣: Lebih kurang berapa *pendapatan bulanan* awak?\n\n1️⃣ Bawah RM5,000\n2️⃣ RM5,000 – 20,000\n3️⃣ RM20,000 – 50,000\n4️⃣ RM50,000+\n\n_Balas dengan nombor_`
+        : `✅ Noted!\n\nQuestion 4️⃣: What is your approximate *monthly revenue*?\n\n1️⃣ Below RM5,000\n2️⃣ RM5,000 – 20,000\n3️⃣ RM20,000 – 50,000\n4️⃣ RM50,000+\n\n_Reply with a number_`);
+}
+
+const REV_MAP = {
+    '1': { en: 'Below RM5,000', bm: 'Bawah RM5,000', num: 2500 },
+    '2': { en: 'RM5,000 – 20,000', bm: 'RM5,000 – 20,000', num: 12500 },
+    '3': { en: 'RM20,000 – 50,000', bm: 'RM20,000 – 50,000', num: 35000 },
+    '4': { en: 'RM50,000+', bm: 'RM50,000+', num: 60000 },
+};
+
+async function handleExpressQ4(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const entry = REV_MAP[text.trim()];
+
+    if (!entry) {
+        await sendMessage(phone, lang === 'bm'
+            ? `Sila balas 1-4:\n1️⃣ Bawah RM5,000\n2️⃣ RM5,000 – 20,000\n3️⃣ RM20,000 – 50,000\n4️⃣ RM50,000+`
+            : `Please reply 1-4:\n1️⃣ Below RM5,000\n2️⃣ RM5,000 – 20,000\n3️⃣ RM20,000 – 50,000\n4️⃣ RM50,000+`);
+        return;
+    }
+
+    await userRef.update({
+        'express_loan_data.monthly_revenue_label': entry[lang] || entry.en,
+        'express_loan_data.monthly_revenue_num': entry.num,
+        state: 'express_loan_q5',
+    });
+
+    await sendMessage(phone, lang === 'bm'
+        ? `✅ Noted!\n\nSoalan 5️⃣: Berapa *jumlah pinjaman* yang awak perlukan?\n\n1️⃣ Bawah RM10,000\n2️⃣ RM10,000 – 50,000\n3️⃣ RM50,000 – 200,000\n4️⃣ RM200,000+\n\n_Balas dengan nombor_`
+        : `✅ Noted!\n\nQuestion 5️⃣: How much *loan amount* do you need?\n\n1️⃣ Below RM10,000\n2️⃣ RM10,000 – 50,000\n3️⃣ RM50,000 – 200,000\n4️⃣ RM200,000+\n\n_Reply with a number_`);
+}
+
+const AMT_MAP = {
+    '1': { en: 'Below RM10,000', bm: 'Bawah RM10,000', num: 5000 },
+    '2': { en: 'RM10,000 – 50,000', bm: 'RM10,000 – 50,000', num: 30000 },
+    '3': { en: 'RM50,000 – 200,000', bm: 'RM50,000 – 200,000', num: 125000 },
+    '4': { en: 'RM200,000+', bm: 'RM200,000+', num: 250000 },
+};
+
+async function handleExpressQ5(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const entry = AMT_MAP[text.trim()];
+
+    if (!entry) {
+        await sendMessage(phone, lang === 'bm'
+            ? `Sila balas 1-4:\n1️⃣ Bawah RM10,000\n2️⃣ RM10,000 – 50,000\n3️⃣ RM50,000 – 200,000\n4️⃣ RM200,000+`
+            : `Please reply 1-4:\n1️⃣ Below RM10,000\n2️⃣ RM10,000 – 50,000\n3️⃣ RM50,000 – 200,000\n4️⃣ RM200,000+`);
+        return;
+    }
+
+    await userRef.update({
+        'express_loan_data.loan_amount_label': entry[lang] || entry.en,
+        'express_loan_data.loan_amount_num': entry.num,
+        state: 'express_loan_q6',
+    });
+
+    await sendMessage(phone, lang === 'bm'
+        ? `✅ Noted!\n\nSoalan 6️⃣: Untuk apa *tujuan pinjaman* ini?\n\n1️⃣ 📦 Stok / Inventori\n2️⃣ 🛠️ Peralatan / Mesin\n3️⃣ 📈 Pengembangan perniagaan\n4️⃣ 💰 Modal kerja\n5️⃣ 🚀 Lain-lain\n\n_Balas dengan nombor_`
+        : `✅ Noted!\n\nQuestion 6️⃣: What is the *purpose* of this loan?\n\n1️⃣ 📦 Inventory / Stock\n2️⃣ 🛠️ Equipment / Machinery\n3️⃣ 📈 Business expansion\n4️⃣ 💰 Working capital\n5️⃣ 🚀 Other\n\n_Reply with a number_`);
+}
+
+const PURPOSE_MAP = {
+    '1': { en: 'Inventory / Stock', bm: 'Stok / Inventori' },
+    '2': { en: 'Equipment / Machinery', bm: 'Peralatan / Mesin' },
+    '3': { en: 'Business expansion', bm: 'Pengembangan perniagaan' },
+    '4': { en: 'Working capital', bm: 'Modal kerja' },
+    '5': { en: 'Other', bm: 'Lain-lain' },
+};
+
+async function handleExpressQ6(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const entry = PURPOSE_MAP[text.trim()];
+
+    if (!entry) {
+        await sendMessage(phone, lang === 'bm'
+            ? `Sila balas 1-5:\n1️⃣ Stok\n2️⃣ Peralatan\n3️⃣ Pengembangan\n4️⃣ Modal kerja\n5️⃣ Lain-lain`
+            : `Please reply 1-5:\n1️⃣ Inventory\n2️⃣ Equipment\n3️⃣ Expansion\n4️⃣ Working capital\n5️⃣ Other`);
+        return;
+    }
+
+    const purpose = entry[lang] || entry.en;
+    // Merge purpose into express_loan_data locally — avoids an extra Firestore read
+    const updatedExpressData = { ...(userData.express_loan_data || {}), purpose };
+    await userRef.update({ 'express_loan_data.purpose': purpose });
+    // state is set by sendMatches (loan_match_review) or the no-match fallback (menu)
+
+    await sendMessage(phone, lang === 'bm'
+        ? `⏳ Sedang mencari pinjaman terbaik untuk awak...`
+        : `⏳ Finding the best loans for you...`);
+
+    const { score, reasoning } = await generateProvisionalScore(updatedExpressData, lang);
+    await userRef.update({ provisional_score: score, provisional_reasoning: reasoning });
+
+    const matches = await matchLoans({ ...userData, provisional_score: score, express_loan_data: updatedExpressData }, lang);
+
+    if (!matches || matches.length === 0) {
+        await sendMessage(phone, lang === 'bm'
+            ? `⚠️ Maaf, tiada pinjaman yang sesuai dijumpai buat masa ini.\n\nTerus rekod jualan untuk tingkatkan skor awak!\nTaip *MENU* untuk kembali.`
+            : `⚠️ No matching loans found based on your profile right now.\n\nKeep recording sales to improve your score!\nType *MENU* to go back.`);
+        await userRef.update({ state: 'menu' });
+        return;
+    }
+
+    await sendMatches(phone, userRef, matches, score, lang);
+}
+
+// ── Provisional score via Gemini ──────────────────────────────────────────────
+
+async function generateProvisionalScore(expressData, lang = 'en') {
+    const langInstr = lang === 'bm' ? 'Bahasa Malaysia' : 'English';
+    const prompt = `You are a credit analyst for ASEAN micro-loans. Score this SME applicant 0-100.
+
+Business profile:
+- Industry: ${expressData.industry || 'unknown'}
+- Business age: ${expressData.biz_age_label || 'unknown'}
+- Monthly revenue: ${expressData.monthly_revenue_label || 'unknown'}
+- Loan amount requested: ${expressData.loan_amount_label || 'unknown'}
+- Loan purpose: ${expressData.purpose || 'unknown'}
+
+Factors: business age (older=higher), revenue vs loan ratio (lower=higher), industry risk, purpose strength.
+Return ONLY valid JSON: {"score": <integer 0-100>, "reasoning": "<1 sentence in ${langInstr}>"}`;
+
+    try {
+        const result = await genText(prompt);
+        const parsed = parseJson(result);
+        return { score: Math.max(0, Math.min(100, parseInt(parsed.score) || 50)), reasoning: parsed.reasoning || '' };
+    } catch {
+        // Rule-based fallback
+        let score = 35;
+        const months = expressData.biz_age_months || ageToMonths(expressData.biz_age_label || '');
+        if (months >= 24) score += 20;
+        else if (months >= 12) score += 12;
+        else if (months >= 6) score += 6;
+        const rev = expressData.monthly_revenue_num || revenueToNum(expressData.monthly_revenue_label || '');
+        const amt = expressData.loan_amount_num || loanAmountToNum(expressData.loan_amount_label || '');
+        if (rev > 0 && amt > 0) {
+            const ratio = amt / (rev * 12);
+            if (ratio < 1) score += 20;
+            else if (ratio < 2) score += 12;
+            else if (ratio < 3) score += 6;
+        }
+        const reasoning = lang === 'bm'
+            ? `Skor berdasarkan umur perniagaan dan nisbah pendapatan kepada pinjaman awak.`
+            : `Score based on your business age and revenue-to-loan ratio.`;
+        return { score: Math.min(score, 100), reasoning };
+    }
+}
+
+// ── Loan matching ─────────────────────────────────────────────────────────────
+
+async function getLoanProducts() {
+    const snap = await db.collection('loan_products').where('active', '==', true).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function matchLoans(userData, lang = 'en') {
+    const products = await getLoanProducts();
+    const expressData = userData.express_loan_data || {};
+
+    // Resolve monthly revenue
+    let monthlyRevNum = expressData.monthly_revenue_num || 0;
+    if (!monthlyRevNum) {
+        const sales = userData.sales || [];
+        if (sales.length >= 3) {
+            const total = sales.reduce((s, x) => s + (x.amount || 0), 0);
+            monthlyRevNum = Math.round((total / sales.length) * 30);
+        }
+    }
+    if (!monthlyRevNum) monthlyRevNum = revenueToNum(expressData.monthly_revenue_label || userData.monthly_revenue || '');
+
+    // Resolve business age
+    let bizAgeMonths = expressData.biz_age_months || 0;
+    if (!bizAgeMonths) {
+        bizAgeMonths = parseBizAgeStr(userData.biz_age) || 6;
+    }
+
+    const loanAmtRequested = expressData.loan_amount_num || loanAmountToNum(expressData.loan_amount_label || '');
+    const creditScore = userData.provisional_score || userData.credit_score || 0;
+    const country = userData.country || 'MY';
+
+    // Hard filter — track which products genuinely pass
+    const qualifiedIds = new Set();
+    const hardFiltered = products.filter(p => {
+        if (!p.countries || !p.countries.includes(country)) return false;
+        if (monthlyRevNum > 0 && monthlyRevNum < (p.min_monthly_revenue || 0)) return false;
+        if (bizAgeMonths > 0 && bizAgeMonths < (p.min_business_age_months || 0)) return false;
+        if (loanAmtRequested > 0 && loanAmtRequested > (p.max_amount || Infinity)) return false;
+        return true;
+    });
+    hardFiltered.forEach(p => qualifiedIds.add(p.id));
+
+    let eligible = hardFiltered;
+
+    // Relax if empty — show aspirational loans so user has a goal
+    if (eligible.length === 0) {
+        eligible = products.filter(p => p.countries && p.countries.includes(country)).slice(0, 3);
+    }
+
+    // Score matches
+    if (eligible.length === 0) return [];
+
+    const maxRate = Math.max(...eligible.map(p => p.interest_rate || 10));
+    const minRate = Math.min(...eligible.map(p => p.interest_rate || 0));
+    const rateRange = Math.max(maxRate - minRate, 0.1);
+
+    const scored = eligible.map(p => {
+        const ratePct = ((maxRate - (p.interest_rate || 0)) / rateRange) * 40;
+        const midAmt = ((p.min_amount || 0) + (p.max_amount || 0)) / 2;
+        const amtDiff = loanAmtRequested > 0 && midAmt > 0 ? Math.abs(loanAmtRequested - midAmt) / midAmt : 0;
+        const amtPct = Math.max(0, 30 - amtDiff * 30);
+        const threshold = 60;
+        const scorePct = creditScore >= threshold ? 20 : (creditScore / threshold) * 20;
+        const docPct = Math.max(0, 10 - ((p.required_docs || []).length * 3));
+        const matchPct = Math.round(ratePct + amtPct + scorePct + docPct);
+        return { ...p, matchPct: Math.min(99, Math.max(40, matchPct)), qualified: qualifiedIds.has(p.id) };
+    });
+
+    scored.sort((a, b) => b.matchPct - a.matchPct);
+    const top3 = scored.slice(0, 3);
+
+    // Generate honest reasoning per match
+    const langInstr = lang === 'bm' ? 'Bahasa Malaysia' : 'English';
+    const revStr = monthlyRevNum > 0 ? `RM${monthlyRevNum.toLocaleString()}` : 'unknown revenue';
+    const ageStr = bizAgeMonths > 0 ? `${bizAgeMonths} months` : 'unknown age';
+
+    for (const loan of top3) {
+        // Compute specific gaps for this loan
+        const gaps = [];
+        if (loan.min_monthly_revenue && monthlyRevNum < loan.min_monthly_revenue) {
+            gaps.push(`revenue RM${monthlyRevNum.toLocaleString()}/mo vs min RM${loan.min_monthly_revenue.toLocaleString()}/mo`);
+        }
+        if (loan.min_credit_score && creditScore < loan.min_credit_score) {
+            gaps.push(`credit score ${creditScore} vs min ${loan.min_credit_score}`);
+        }
+        if (loan.min_business_age_months && bizAgeMonths < loan.min_business_age_months) {
+            gaps.push(`business age ${bizAgeMonths} months vs min ${loan.min_business_age_months} months`);
+        }
+
+        try {
+            let prompt;
+            if (loan.qualified) {
+                prompt = `Write exactly 1 sentence in ${langInstr} explaining why this SME meets eligibility for this loan.
+Revenue: ${revStr}/month, Business age: ${ageStr}, Loan: ${loan.product_name} (${loan.bank_name}).
+Be factual. Start with "You qualify because..."`;
+            } else {
+                prompt = `Write exactly 1 sentence in ${langInstr} telling this SME what specific gap to close to reach this loan.
+Gaps: ${gaps.length > 0 ? gaps.join('; ') : 'profile needs strengthening'}.
+Loan: ${loan.product_name} (${loan.bank_name}).
+Be honest and specific. Start with "To qualify, you need to..."`;
+            }
+            loan.reasoning = await genText(prompt);
+        } catch {
+            loan.reasoning = loan.qualified
+                ? (lang === 'bm'
+                    ? `Awak layak kerana profil perniagaan awak memenuhi syarat minimum ${loan.bank_name}.`
+                    : `You qualify because your business profile meets ${loan.bank_name}'s minimum requirements.`)
+                : (lang === 'bm'
+                    ? `Terus rekod jualan dan tingkatkan skor untuk capai syarat ${loan.bank_name}.`
+                    : `Keep recording sales and improve your score to reach ${loan.bank_name}'s requirements.`);
+        }
+    }
+
+    return top3;
+}
+
+// ── Display matches & handle selection ────────────────────────────────────────
+
+const MEDALS = ['🥇', '🥈', '🥉'];
+const RANKS_EN = ['*Best Match*', '*2nd Choice*', '*3rd Choice*'];
+const RANKS_BM = ['*Padanan Terbaik*', '*Pilihan Ke-2*', '*Pilihan Ke-3*'];
+
+async function sendMatches(phone, userRef, matches, score, lang = 'en') {
+    const userData = (await userRef.get()).data();
+    const cc = getCountry(userData);
+    const cur = cc.currency;
+
+    await userRef.update({
+        loan_matches: matches.map(m => ({
+            id: m.id,
+            bank_name: m.bank_name,
+            product_name: m.product_name,
+            max_amount: m.max_amount,
+            interest_rate: m.interest_rate,
+            required_docs: m.required_docs || [],
+            qualified: m.qualified || false,
+            matchPct: m.matchPct || 0,
+            reasoning: m.reasoning || '',
+        })),
+        state: 'loan_match_review',
+    });
+
+    const scoreNote = score > 0
+        ? ` (${lang === 'bm' ? 'skor provisional' : 'provisional score'}: *${score}*)`
+        : '';
+
+    const anyQualified = matches.some(m => m.qualified);
+    const allAspirational = !anyQualified;
+
+    let msg = lang === 'bm'
+        ? `🎯 *Saya jumpa ${matches.length} pinjaman untuk awak${scoreNote}*\n\n`
+        : `🎯 *I found ${matches.length} loans for you${scoreNote}*\n\n`;
+
+    if (allAspirational) {
+        msg += lang === 'bm'
+            ? `⚠️ _Awak belum memenuhi syarat minimum buat masa ini. Pinjaman di bawah adalah matlamat yang boleh dicapai — terus rekod jualan untuk meningkatkan profil awak!_\n\n`
+            : `⚠️ _You don't fully meet eligibility yet. The loans below are goals to work toward — keep recording sales to strengthen your profile!_\n\n`;
+    }
+
+    const ranks = lang === 'bm' ? RANKS_BM : RANKS_EN;
+    matches.forEach((m, i) => {
+        const amtDisplay = `${cur}${(m.max_amount || 0).toLocaleString()}`;
+        const docs = (m.required_docs || []).map(d => d.replace(/_/g, ' ')).join(', ') || 'minimal docs';
+        const aspTag = !m.qualified ? (lang === 'bm' ? ' _(Aspirasi)_' : ' _(Aspirational)_') : '';
+        msg += `${MEDALS[i]} ${ranks[i]}: *${m.bank_name} ${m.product_name}*${aspTag}\n`;
+        msg += `💰 ${lang === 'bm' ? 'Sehingga' : 'Up to'} ${amtDisplay} @ ${m.interest_rate}% p.a.\n`;
+        if (m.matchPct !== undefined) msg += `📊 ${m.matchPct}% ${lang === 'bm' ? 'padanan' : 'match'}\n`;
+        if (m.reasoning) {
+            const icon = m.qualified ? '✅' : '⚠️';
+            msg += `${icon} ${m.reasoning}\n`;
+        }
+        msg += `📄 ${lang === 'bm' ? 'Dokumen' : 'Need'}: ${docs}\n\n`;
+    });
+
+    const n = matches.length;
+    const opts = n === 1 ? '*1*' : n === 2 ? '*1* atau *2*' : '*1*, *2*, atau *3*';
+    const optsEn = n === 1 ? '*1*' : n === 2 ? '*1* or *2*' : '*1*, *2*, or *3*';
+    msg += lang === 'bm'
+        ? `Balas ${opts} untuk mohon.\nBalas *MENU* untuk kembali.`
+        : `Reply ${optsEn} to apply.\nReply *MENU* to go back.`;
+
+    await sendMessage(phone, msg);
+
+    // Credit roadmap — second message when all loans are aspirational
+    if (allAspirational) {
+        const top = matches[0];
+        const expressData = userData.express_loan_data || {};
+        const monthlyRevNum = expressData.monthly_revenue_num || 0;
+        const bizAgeMonths = expressData.biz_age_months || parseBizAgeStr(userData.biz_age);
+
+        const steps = [];
+        if (top.min_monthly_revenue && monthlyRevNum > 0 && monthlyRevNum < top.min_monthly_revenue) {
+            const gap = top.min_monthly_revenue - monthlyRevNum;
+            steps.push(lang === 'bm'
+                ? `💵 Tingkatkan pendapatan bulanan sebanyak ${cur}${gap.toLocaleString()} (min: ${cur}${top.min_monthly_revenue.toLocaleString()})`
+                : `💵 Grow monthly revenue by ${cur}${gap.toLocaleString()} (min: ${cur}${top.min_monthly_revenue.toLocaleString()})`);
+        }
+        if (top.min_business_age_months && bizAgeMonths > 0 && bizAgeMonths < top.min_business_age_months) {
+            const moreMonths = top.min_business_age_months - bizAgeMonths;
+            steps.push(lang === 'bm'
+                ? `📅 Teruskan beroperasi ${moreMonths} bulan lagi untuk memenuhi syarat umur perniagaan`
+                : `📅 Operate for ${moreMonths} more months to meet business age requirement`);
+        }
+        if (top.min_credit_score && score < top.min_credit_score) {
+            steps.push(lang === 'bm'
+                ? `📊 Tingkatkan skor kredit ke ${top.min_credit_score} (skor awak: ${score}) — rekod lebih banyak jualan`
+                : `📊 Improve credit score to ${top.min_credit_score} (yours: ${score}) — record more sales daily`);
+        }
+        steps.push(lang === 'bm'
+            ? `📋 Daftar SSM / buka akaun bank perniagaan untuk +20 mata skor`
+            : `📋 Register SSM / open business bank account for +20 score points`);
+
+        const roadmap = lang === 'bm'
+            ? `🗺️ *Pelan tindakan awak:*\n\n${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n💡 _Rekod jualan setiap hari — skor naik, peluang pinjaman terbuka!_\nTaip *2* untuk semak skor kredit awak`
+            : `🗺️ *Your qualification roadmap:*\n\n${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n💡 _Record sales every day — score grows, loan doors open!_\nType *2* to check your credit score`;
+        await sendMessage(phone, roadmap);
+    }
+}
+
+async function handleLoanSelection(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const tUpper = text.trim().toUpperCase();
+
+    const idx = parseInt(tUpper) - 1;
+    const matches = userData.loan_matches || [];
+
+    if (isNaN(idx) || idx < 0 || idx >= matches.length) {
+        const n = matches.length;
+        const optsMsg = n === 1 ? '*1*' : n === 2 ? (lang === 'bm' ? '*1* atau *2*' : '*1* or *2*') : (lang === 'bm' ? '*1*, *2*, atau *3*' : '*1*, *2*, or *3*');
+        await sendMessage(phone, lang === 'bm'
+            ? `Sila balas ${optsMsg} untuk pilih pinjaman.\nBalas *MENU* untuk kembali.`
+            : `Please reply ${optsMsg} to select a loan.\nReply *MENU* to go back.`);
+        return;
+    }
+
+    const selected = matches[idx];
+    await userRef.update({ selected_loan: selected, state: 'loan_doc_upload' });
+
+    const docsNeeded = (selected.required_docs || ['bank_statement']).map(d => d.replace(/_/g, ' ')).join(', ');
+
+    // Aspirational loan disclaimer — user chose a loan they don't yet qualify for
+    const disclaimer = !selected.qualified
+        ? (lang === 'bm'
+            ? `\n\n⚠️ _Nota: Pinjaman ini adalah matlamat aspirasi. Bank mungkin meminta dokumen tambahan atau mungkin tidak meluluskan pada peringkat ini. Cuba tetap hantar — keputusan muktamad ada pada bank._`
+            : `\n\n⚠️ _Note: This is an aspirational loan — you may not meet all requirements yet. Banks may request extra docs or may not approve at this stage. Still worth applying — final decision is theirs._`)
+        : '';
+
+    await sendMessage(phone, lang === 'bm'
+        ? `Pilihan dibuat! 🎉${disclaimer}\n\nUntuk hantar permohonan ke *${selected.bank_name}*, saya perlukan:\n📎 ${docsNeeded}\n\nHantar gambar atau dokumen dalam chat ini sekarang.\n\n_Taip *LANGKAU* jika tiada dokumen buat masa ni._`
+        : `Selection made! 🎉${disclaimer}\n\nTo submit your application to *${selected.bank_name}*, I need:\n📎 ${docsNeeded}\n\nJust send the image or document here in this chat.\n\n_Type *SKIP* if you don't have documents right now._`);
+}
+
+// ── Document upload ───────────────────────────────────────────────────────────
+
+async function handleDocUpload(phone, mediaId, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const selected = userData.selected_loan || {};
+
+    const refId = 'BB-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+
+    const appDoc = {
+        id: refId,
+        user_id: phone,
+        user_name: userData.owner_name || '-',
+        user_phone: phone,
+        loan_product_id: selected.id || 'unknown',
+        bank_name: selected.bank_name || '-',
+        product_name: selected.product_name || '-',
+        amount: selected.max_amount || 0,
+        interest_rate: selected.interest_rate || 0,
+        purpose: (userData.express_loan_data || {}).purpose || '-',
+        provisional_score: userData.provisional_score || userData.credit_score || 0,
+        score_reasoning: userData.provisional_reasoning || '',
+        documents: mediaId ? [mediaId] : [],
+        status: 'pending_review',
+        submitted_at: new Date(),
+        reviewed_at: null,
+        reviewer_notes: null,
+        express_loan_data: userData.express_loan_data || {},
+        required_docs: selected.required_docs || [],
+    };
+
+    await db.collection('loan_applications').doc(refId).set(appDoc);
+    await userRef.update({ state: 'menu', last_application_id: refId, loan_application_status: 'pending_review' });
+
+    const dashUrl = 'https://yourapp.com/dashboard.html';
+    await sendMessage(phone, lang === 'bm'
+        ? `✅ *Permohonan dihantar!*\n\n📋 Rujukan: *${refId}*\n🏦 Bank: ${selected.bank_name || '-'}\n💰 Jumlah: RM${(selected.max_amount || 0).toLocaleString()}\n⏱️ Maklum balas: 3 hari bekerja\n\nSaya akan beritahu awak apabila ada kemas kini.\n👉 ${dashUrl}\n\nTaip *MENU* untuk kembali`
+        : `✅ *Application submitted!*\n\n📋 Reference: *${refId}*\n🏦 Bank: ${selected.bank_name || '-'}\n💰 Amount: RM${(selected.max_amount || 0).toLocaleString()}\n⏱️ Expected response: 3 working days\n\nI'll notify you here when there's an update.\n👉 ${dashUrl}\n\nType *MENU* to go back`);
+}
+
+// ── Loan status check ─────────────────────────────────────────────────────────
+
+async function showLoanStatus(phone, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+
+    let snap;
+    try {
+        snap = await db.collection('loan_applications')
+            .where('user_id', '==', phone)
+            .orderBy('submitted_at', 'desc')
+            .limit(5)
+            .get();
+    } catch {
+        // Index may not exist yet; fallback
+        snap = await db.collection('loan_applications').where('user_id', '==', phone).limit(5).get();
+    }
+
+    if (!snap || snap.empty) {
+        await sendMessage(phone, lang === 'bm'
+            ? `📋 *Permohonan Pinjaman Awak*\n\nTiada permohonan lagi.\n\nTaip *5* untuk mulakan permohonan express!\nTaip *MENU* untuk kembali`
+            : `📋 *Your Loan Applications*\n\nNo applications yet.\n\nType *5* to start an express loan application!\nType *MENU* to go back`);
+        return;
+    }
+
+    const statusEmoji = { pending_review: '⏳', approved: '✅', rejected: '❌', needs_info: '📝' };
+    const statusLabel = {
+        pending_review: lang === 'bm' ? 'Dalam Semakan' : 'Under Review',
+        approved: lang === 'bm' ? 'Diluluskan' : 'Approved',
+        rejected: lang === 'bm' ? 'Tidak Diluluskan' : 'Not Approved',
+        needs_info: lang === 'bm' ? 'Maklumat Lanjut Diperlukan' : 'More Info Needed',
+    };
+
+    let msg = lang === 'bm' ? `📋 *Permohonan Pinjaman Awak*\n\n` : `📋 *Your Loan Applications*\n\n`;
+
+    snap.docs.forEach((doc, i) => {
+        const d = doc.data();
+        const submittedAt = d.submitted_at?.toDate?.() || new Date(d.submitted_at || Date.now());
+        const hoursAgo = Math.round((Date.now() - submittedAt.getTime()) / 3600000);
+        const timeStr = hoursAgo < 1 ? (lang === 'bm' ? 'Baru sahaja' : 'Just now')
+            : hoursAgo < 24 ? `${hoursAgo}h ${lang === 'bm' ? 'lalu' : 'ago'}`
+            : `${Math.round(hoursAgo / 24)}d ${lang === 'bm' ? 'lalu' : 'ago'}`;
+        const emoji = statusEmoji[d.status] || '⏳';
+        const label = statusLabel[d.status] || d.status;
+        msg += `${i + 1}. *${d.bank_name} — RM${(d.amount || 0).toLocaleString()}*\n`;
+        msg += `   Ref: ${d.id} | ${emoji} ${label}\n`;
+        msg += `   ${lang === 'bm' ? 'Dihantar' : 'Submitted'}: ${timeStr}\n\n`;
+    });
+
+    msg += lang === 'bm' ? `Taip *MENU* untuk kembali` : `Type *MENU* to go back`;
+    await sendMessage(phone, msg);
+}
+
+// ── Proactive trigger when score crosses 70 ───────────────────────────────────
+
+async function checkProactiveTrigger(phone, userRef, newScore, prevScore) {
+    if (prevScore >= 70 || newScore < 70) return;
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const sales = userData.sales || [];
+    const total = sales.reduce((s, x) => s + (x.amount || 0), 0);
+    const avgMonthly = sales.length > 0 ? Math.round(total / sales.length * 30) : 0;
+    const cc = getCountry(userData);
+    const cur = cc.currency;
+    const name = userData.owner_name || userData.business_name || (lang === 'bm' ? 'Peniaga' : 'there');
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🎉 *Berita gembira, ${name}!*\n\nSkor kredit awak baru capai *${newScore}*!\n\nBerdasarkan hasil bulanan anggaran ${cur}${avgMonthly.toLocaleString()} awak, saya jumpa *3 pinjaman* yang awak mungkin layak!\n\n_Balas *YA* untuk tengok pinjaman atau *MENU* untuk kembali_`
+        : `🎉 *Big news, ${name}!*\n\nYour credit score just hit *${newScore}*!\n\nBased on your estimated ${cur}${avgMonthly.toLocaleString()} monthly revenue, I found *3 loans* you likely qualify for!\n\n_Reply *YES* to see loans or *MENU* to go back_`);
+
+    await userRef.update({ state: 'loan_proactive_review' });
+}
+
+module.exports = {
+    matchLoans,
+    sendMatches,
+    handleLoanSelection,
+    handleDocUpload,
+    showLoanStatus,
+    checkProactiveTrigger,
+    generateProvisionalScore,
+    handleExpressQ1,
+    handleExpressQ2,
+    handleExpressQ3,
+    handleExpressQ4,
+    handleExpressQ5,
+    handleExpressQ6,
+    revenueToNum,
+    ageToMonths,
+    loanAmountToNum,
+};
+
+
+// ============================================================
+// FILE: handlers/content.js
+// ============================================================
+
+const { genText } = require('../gemini');
+const { sendMessage } = require('../send');
+const handleMenu = require('./menu');
+
+const CONTENT_TYPES = {
+    '1': { key: 'instagram', bm: 'Caption Instagram', en: 'Instagram Caption' },
+    '2': { key: 'whatsapp',  bm: 'Mesej WhatsApp Blast', en: 'WhatsApp Blast Message' },
+    '3': { key: 'tiktok',    bm: 'Skrip Video TikTok', en: 'TikTok Video Script' },
+    '4': { key: 'facebook',  bm: 'Post Facebook', en: 'Facebook Post' },
+    '5': { key: 'promosi',   bm: 'Idea Promosi Musim', en: 'Seasonal Promotion Ideas' },
+};
+
+async function handleContentMenu(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const tUpper = text.toUpperCase().trim();
+
+    if (tUpper === 'MENU') {
+        await userRef.update({ state: 'menu' });
+        await handleMenu(phone, 'MENU', userRef);
+        return;
+    }
+
+    const ct = CONTENT_TYPES[tUpper];
+    if (ct) {
+        await userRef.update({ state: 'content_generate', content_type: ct.key });
+        await sendMessage(phone, lang === 'bm'
+            ? `✨ *${ct.bm}*\n\nBeritahu saya lebih detail!\n\nContoh:\n• _promosi raya minggu depan_\n• _jualan clearance stok lama_\n• _produk baru baru sampai_\n• _diskaun 20% untuk 10 pembeli pertama_\n\nAtau taip *SKIP* untuk jana kandungan umum.\n_(Taip MENU untuk kembali)_`
+            : `✨ *${ct.en}*\n\nTell me more details!\n\nExamples:\n• _raya promotion next week_\n• _clearance sale old stock_\n• _new product just arrived_\n• _20% discount for first 10 buyers_\n\nOr type *SKIP* to generate general content.\n_(Type MENU to go back)_`
+        );
+    } else {
+        await sendMessage(phone, lang === 'bm' ? 'Sila pilih 1-5 atau taip *MENU* untuk kembali.' : 'Please choose 1-5 or type *MENU* to go back.');
+    }
+}
+
+async function handleContentGenerate(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const ctype = userData.content_type || 'instagram';
+    const tUpper = text.toUpperCase().trim();
+
+    if (tUpper === 'MENU') {
+        await userRef.update({ state: 'menu' });
+        await handleMenu(phone, 'MENU', userRef);
+        return;
+    }
+
+    const detail = tUpper === 'SKIP' ? '' : text;
+    const langInstr = lang === 'bm' ? 'Bahasa Malaysia yang menarik dan natural' : 'natural and engaging English';
+    const biz = userData.business_name || 'perniagaan saya';
+    const product = userData.product || 'produk';
+
+    const prompts = {
+        instagram: `You are a social media expert for small Malaysian businesses.\nCreate an Instagram caption in ${langInstr} for:\n- Business: ${biz}\n- Product: ${product}\n- Special detail: ${detail || 'general promotion'}\n\nFormat:\n- 3-4 lines of engaging caption\n- 2 relevant emojis per line\n- Call to action (DM/WhatsApp)\n- 10-15 relevant Malaysian hashtags\n\nMake it sound authentic, not corporate.`,
+        whatsapp:  `You are a marketing expert for small Malaysian businesses.\nCreate a WhatsApp broadcast message in ${langInstr} for:\n- Business: ${biz}\n- Product: ${product}\n- Special detail: ${detail || 'general promotion'}\n\nFormat:\n- Greeting with emoji\n- Short exciting offer (2-3 lines)\n- Key benefits (3 bullet points)\n- Clear call to action\n- Contact info placeholder\n\nKeep it under 200 words. Conversational tone like texting a friend.`,
+        tiktok:    `You are a TikTok content creator for small Malaysian businesses.\nCreate a TikTok video script in ${langInstr} for:\n- Business: ${biz}\n- Product: ${product}\n- Special detail: ${detail || 'showcase product'}\n\nFormat:\nHOOK (0-3 sec): [attention grabbing opening line]\nCONTENT (3-25 sec): [what to show/say step by step]\nCTA (25-30 sec): [call to action]\nCAPTION: [TikTok caption with hashtags]\n\nMake it trendy and fun.`,
+        facebook:  `You are a Facebook marketing expert for small Malaysian businesses.\nCreate a Facebook post in ${langInstr} for:\n- Business: ${biz}\n- Product: ${product}\n- Special detail: ${detail || 'general promotion'}\n\nFormat:\n- Attention-grabbing first line\n- Story or benefit (3-4 lines)\n- Clear offer or call to action\n- 5-8 relevant hashtags\n\nTone: Friendly, trustworthy, community-focused.`,
+        promosi:   `You are a marketing strategist for small Malaysian businesses.\nGenerate 3 creative promotion ideas in ${langInstr} for:\n- Business: ${biz}\n- Product: ${product}\n- Context: ${detail || 'general seasonal promotion'}\n\nFor each idea:\n- Idea name\n- How to execute (2-3 steps)\n- Expected benefit\n\nFocus on low-cost, high-impact ideas. Include Malaysian cultural events (Raya, Ramadan, Merdeka) if applicable.`,
+    };
+
+    await sendMessage(phone, lang === 'bm' ? '⏳ Sedang menjana kandungan untuk awak...' : '⏳ Generating content for you...');
+
+    let response = '';
+    try { response = await genText(prompts[ctype] || prompts.instagram); } catch { response = lang === 'bm' ? 'Maaf, cuba lagi.' : 'Sorry, try again.'; }
+
+    const labelsBm = { instagram: '📸 CAPTION INSTAGRAM', whatsapp: '📱 MESEJ WHATSAPP BLAST', tiktok: '🎵 SKRIP TIKTOK', facebook: '📘 POST FACEBOOK', promosi: '💡 IDEA PROMOSI' };
+    const labelsEn = { instagram: '📸 INSTAGRAM CAPTION', whatsapp: '📱 WHATSAPP BLAST', tiktok: '🎵 TIKTOK SCRIPT', facebook: '📘 FACEBOOK POST', promosi: '💡 PROMOTION IDEAS' };
+    const label = lang === 'bm' ? labelsBm[ctype] : labelsEn[ctype];
+
+    await userRef.update({ state: 'content_menu' });
+
+    await sendMessage(phone, lang === 'bm'
+        ? `✨ *${label} SIAP!*\n\n━━━━━━━━━━━━━━━━━━━━\n${response}\n━━━━━━━━━━━━━━━━━━━━\n\n📋 *Copy dan paste terus!*\n\n✨ *Jana Kandungan Media Sosial*\n\nJana lagi? Pilih:\n\n1️⃣ Caption Instagram\n2️⃣ WhatsApp Blast\n3️⃣ Skrip TikTok\n4️⃣ Post Facebook\n5️⃣ Idea Promosi\n\n_(Taip MENU untuk kembali)_`
+        : `✨ *${label} READY!*\n\n━━━━━━━━━━━━━━━━━━━━\n${response}\n━━━━━━━━━━━━━━━━━━━━\n\n📋 *Copy and paste directly!*\n\n✨ *Social Media Content Generator*\n\nGenerate more? Choose:\n\n1️⃣ Instagram Caption\n2️⃣ WhatsApp Blast\n3️⃣ TikTok Script\n4️⃣ Facebook Post\n5️⃣ Promotion Ideas\n\n_(Type MENU to go back)_`
+    );
+}
+
+module.exports = { handleContentMenu, handleContentGenerate };
+
+
+// ============================================================
+// FILE: handlers/smart.js
+// ============================================================
+
+const { db, FieldValue } = require('../db');
+const { getCountry, getCurrency, today } = require('../config');
+const { genText, parseJson } = require('../gemini');
+const { sendMessage } = require('../send');
+const handleMenu = require('./menu');
+const { showCertificate } = require('../features/profile');
+const { showSalesSummary } = require('../features/summary');
+
+async function smartHandle(phone, text, userRef) {
+    const snap = await userRef.get();
+    const userData = snap.data();
+    const lang = userData.language || 'bm';
+    const cur = getCurrency(userData);
+    const tUpper = text.toUpperCase().trim();
+
+    // Hard commands first
+    if (tUpper === 'MENU') { await handleMenu(phone, 'MENU', userRef); return; }
+    if (['1','2','3','4','5','6','7','8','9'].includes(tUpper)) { await handleMenu(phone, text, userRef); return; }
+
+    const businessProduct = userData.product || '';
+    const intentPrompt = `You are an intent classifier for a WhatsApp business bot.
+The user's business sells/offers: ${businessProduct}
+
+Classify this message into ONE of these intents:
+- log_sale: user is recording INCOME/REVENUE. Keywords: jual, dapat, sold, received money, orang, customer, client, pelanggan. IMPORTANT: If the user mentions their own product/service (like "${businessProduct}") and mentions receiving money or serving customers, this is a SALE not an expense. For service businesses, serving customers = making a sale.
+- log_expense: user is recording a COST/SPENDING. Keywords: beli bahan, bought supplies, spent on, bayar bil, purchase materials, restock. Money GOING OUT to suppliers/bills, NOT from customers.
+- check_score: user asking about credit score (skor, score, markah)
+- check_summary: user asking about sales summary (ringkasan, summary, jualan, berapa duit)
+- ask_ai: user asking a business question (how to, macam mana, tips, advice, cara)
+- show_menu: user wants to see menu options
+- unknown: cannot classify
+
+KEY RULE: If the message mentions "dapat" (received) with an amount, it is ALWAYS a sale.
+KEY RULE: Only classify as expense if the user is BUYING supplies or PAYING bills.
+
+Message: "${text}"
+
+Reply with ONLY the intent word, nothing else.`;
+
+    let intent = 'unknown';
+    try {
+        intent = (await genText(intentPrompt)).toLowerCase().replace(/['"`]/g, '');
+    } catch { /* fallback */ }
+
+    if (intent === 'log_sale') {
+        const extractPrompt = `Extract sale information from: "${text}"\nReturn ONLY valid JSON:\n{"amount": number, "item": "string"}\nIf cannot extract amount use 0.`;
+        let sale = { amount: 0, item: text };
+        try { sale = parseJson(await genText(extractPrompt)); } catch { /* fallback */ }
+
+        await userRef.update({
+            sales: FieldValue.arrayUnion({ amount: sale.amount, item: sale.item, date: today() }),
+        });
+        await sendMessage(phone, lang === 'bm'
+            ? `✅ *Jualan direkod terus!*\n\n💵 Jumlah: ${cur}${sale.amount}\n📦 Item: ${sale.item}\n\nTaip *MENU* untuk pilihan lain.`
+            : `✅ *Sale recorded directly!*\n\n💵 Amount: ${cur}${sale.amount}\n📦 Item: ${sale.item}\n\nType *MENU* for other options.`
+        );
+        return;
+    }
+
+    if (intent === 'log_expense') {
+        const extractPrompt = `Extract expense information from: "${text}"\nReturn ONLY valid JSON:\n{"amount": number, "item": "string"}\nIf cannot extract amount use 0.`;
+        let expense = { amount: 0, item: text };
+        try { expense = parseJson(await genText(extractPrompt)); } catch { /* fallback */ }
+
+        await userRef.update({
+            expenses: FieldValue.arrayUnion({ amount: expense.amount, item: expense.item, date: today() }),
+        });
+        await sendMessage(phone, lang === 'bm'
+            ? `✅ *Perbelanjaan direkod!*\n\n💸 Jumlah: ${cur}${expense.amount}\n📦 Item: ${expense.item}\n\nTaip *MENU* untuk pilihan lain.`
+            : `✅ *Expense recorded!*\n\n💸 Amount: ${cur}${expense.amount}\n📦 Item: ${expense.item}\n\nType *MENU* for other options.`
+        );
+        return;
+    }
+
+    if (intent === 'check_score') { await showCertificate(phone, userRef); return; }
+    if (intent === 'check_summary') { await showSalesSummary(phone, userRef); return; }
+    if (intent === 'show_menu') { await handleMenu(phone, 'MENU', userRef); return; }
+
+    // ask_ai or unknown — answer as AI advisor
+    const langInstr = lang === 'bm' ? 'Bahasa Malaysia mudah' : 'simple English';
+    const aiPrompt = `You are an AI business advisor for small Malaysian entrepreneurs.
+Answer in ${langInstr}. Maximum 4 sentences.
+If this is not a business question, politely redirect them to type MENU.
+
+User business:
+- Name: ${userData.business_name || 'Unknown'}
+- Product: ${userData.product || 'Unknown'}
+- Income: ${userData.monthly_revenue || 'Unknown'}
+
+Question: ${text}`;
+
+    let aiReply = '';
+    try { aiReply = await genText(aiPrompt); } catch { aiReply = lang === 'bm' ? 'Maaf, cuba lagi.' : 'Sorry, try again.'; }
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🤖 ${aiReply}\n\n_(Taip MENU untuk pilihan)_`
+        : `🤖 ${aiReply}\n\n_(Type MENU for options)_`
+    );
+}
+
+module.exports = { smartHandle };
+
+
+// ============================================================
+// FILE: handlers/sale.js
+// ============================================================
+
+const { FieldValue } = require('../db');
+const { getCurrency, today } = require('../config');
+const { genText, parseJson } = require('../gemini');
+const { sendMessage } = require('../send');
+
+async function handleLogSale(phone, text, userRef) {
+    const userData = (await userRef.get()).data();
+    const lang = userData.language || 'bm';
+    const cur = getCurrency(userData);
+
+    const prompt = `Analyze this business transaction: "${text}"
+Return ONLY valid JSON:
+{"amount": number, "item": "string", "quantity": number, "type": "sale" | "expense"}
+sale = selling goods/services to customers (jual, sold, terima bayaran, dapat duit)
+expense = buying stock/supplies/equipment (beli, purchase, bayar supplier, kos, modal, belanja)
+item should be concise, max 5 words. If amount not found, use 0.`;
+
+    let entry = { amount: 0, item: text.substring(0, 50), quantity: 1, type: 'sale' };
+    try {
+        const parsed = parseJson(await genText(prompt));
+        if (parsed && typeof parsed === 'object') {
+            entry = {
+                amount: Math.max(0, Number(parsed.amount) || 0),
+                item: String(parsed.item || text).replace(/^["']|["']$/g, '').substring(0, 50),
+                quantity: Math.max(1, Number(parsed.quantity) || 1),
+                type: parsed.type === 'expense' ? 'expense' : 'sale',
+            };
+        }
+    } catch { /* use fallback */ }
+
+    if (entry.amount <= 0) {
+        await sendMessage(phone, lang === 'bm'
+            ? `⚠️ Saya tidak dapat kesan jumlah. Cuba format macam ni:\n\n✍️ _"Jual nasi lemak 3 bungkus RM15"_\n✍️ _"Beli stok tepung RM50"_\n\nTaip *MENU* untuk kembali`
+            : `⚠️ I couldn't detect an amount. Try this format:\n\n✍️ _"Sold 3 nasi lemak RM15"_\n✍️ _"Bought flour stock RM50"_\n\nType *MENU* to go back`
+        );
+        return;
+    }
+
+    const todayStr = today();
+    const isExpense = entry.type === 'expense';
+    const record = { amount: entry.amount, item: entry.item, date: todayStr, source: 'text' };
+
+    await userRef.update({
+        [isExpense ? 'expenses' : 'sales']: FieldValue.arrayUnion(record),
+    });
+
+    // Running totals for today
+    const fresh = (await userRef.get()).data();
+    const todaySales = (fresh.sales || [])
+        .filter(s => s.date === todayStr)
+        .reduce((sum, x) => sum + (x.amount || 0), 0);
+    const todayExpenses = (fresh.expenses || [])
+        .filter(e => e.date === todayStr)
+        .reduce((sum, x) => sum + (x.amount || 0), 0);
+
+    const runningLine = todayExpenses > 0
+        ? (lang === 'bm'
+            ? `\n\n📈 Jualan hari ini: *${cur}${todaySales.toLocaleString()}* | 💸 Belanja: *${cur}${todayExpenses.toLocaleString()}* | 💰 Bersih: *${cur}${(todaySales - todayExpenses).toLocaleString()}*`
+            : `\n\n📈 Today sales: *${cur}${todaySales.toLocaleString()}* | 💸 Expenses: *${cur}${todayExpenses.toLocaleString()}* | 💰 Net: *${cur}${(todaySales - todayExpenses).toLocaleString()}*`)
+        : (lang === 'bm'
+            ? `\n\n📈 Jualan hari ini: *${cur}${todaySales.toLocaleString()}*`
+            : `\n\n📈 Today's sales: *${cur}${todaySales.toLocaleString()}*`);
+
+    await sendMessage(phone, isExpense
+        ? (lang === 'bm'
+            ? `✅ *Perbelanjaan direkod!*\n\n💸 Jumlah: ${cur}${entry.amount.toLocaleString()}\n📦 Item: ${entry.item}${runningLine}\n\nTerus rekod atau taip *MENU* untuk kembali`
+            : `✅ *Expense recorded!*\n\n💸 Amount: ${cur}${entry.amount.toLocaleString()}\n📦 Item: ${entry.item}${runningLine}\n\nKeep recording or type *MENU* to go back`)
+        : (lang === 'bm'
+            ? `✅ *Jualan direkod!*\n\n💵 Jumlah: ${cur}${entry.amount.toLocaleString()}\n📦 Item: ${entry.item}${runningLine}\n\nTerus rekod atau taip *MENU* untuk kembali`
+            : `✅ *Sale recorded!*\n\n💵 Amount: ${cur}${entry.amount.toLocaleString()}\n📦 Item: ${entry.item}${runningLine}\n\nKeep recording or type *MENU* to go back`)
+    );
+}
+
+module.exports = { handleLogSale };
+
+
+// ============================================================
+// FILE: handlers/chat.js
+// ============================================================
+
+const { getCountry, getCurrency } = require('../config');
+const { genText } = require('../gemini');
+const { sendMessage } = require('../send');
+
+async function handleAiChat(phone, text, userRef) {
+    const snap = await userRef.get();
+    if (!snap.exists) return;
+    const userData = snap.data();
+    const lang = userData.language || 'bm';
+    const cc = getCountry(userData);
+    const cur = cc.currency;
+
+    const sales = userData.sales || [];
+    const expenses = userData.expenses || [];
+    const totalSales    = sales.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const totalExpenses = expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const profit = totalSales - totalExpenses;
+
+    const recentSales = sales
+        .slice(-10)
+        .map(s => `${s.date || '?'}: ${cur}${Number(s.amount) || 0} (${s.item || '?'})`)
+        .join('\n') || (lang === 'bm' ? 'Tiada jualan direkod' : 'No sales recorded');
+
+    const recentExpenses = expenses
+        .slice(-5)
+        .map(e => `${e.date || '?'}: ${cur}${Number(e.amount) || 0} (${e.item || '?'})`)
+        .join('\n') || (lang === 'bm' ? 'Tiada perbelanjaan direkod' : 'No expenses recorded');
+
+    const langInstr = lang === 'bm' ? 'Bahasa Malaysia yang mudah dan praktikal' : 'simple and practical English';
+    const scoreInfo = userData.credit_score
+        ? `${userData.credit_score}/100 (${userData.score_breakdown ? JSON.stringify(userData.score_breakdown) : 'breakdown unavailable'})`
+        : (lang === 'bm' ? 'Belum dijana' : 'Not yet generated');
+
+    const prompt = `You are BizBuddy AI — a smart business advisor for small ASEAN entrepreneurs.
+Respond in ${langInstr}. Keep answers concise (max 5 sentences unless user explicitly asks for detailed analysis).
+Do NOT offer generic advice — use the actual business data below.
+
+BUSINESS PROFILE:
+- Business: ${userData.business_name || '?'}
+- Owner: ${userData.owner_name || '?'}
+- Product/Service: ${userData.product || '?'}
+- Country: ${cc.name} ${cc.flag}
+- State/Region: ${userData.user_state || '?'}
+- Monthly Revenue (stated): ${userData.monthly_revenue || '?'}
+- Business Age: ${userData.biz_age || '?'}
+- Bank Account: ${userData.has_bank_account || '?'}
+- ${cc.registration} Registration: ${userData.has_ssm || '?'}
+- Credit Score: ${scoreInfo}
+
+FINANCIAL DATA:
+- Total Recorded Sales: ${cur}${totalSales.toLocaleString()} (${sales.length} transactions)
+- Total Expenses: ${cur}${totalExpenses.toLocaleString()} (${expenses.length} records)
+- Profit: ${cur}${profit.toLocaleString()}
+- Relevant Loan Program: ${cc.loan_program} (up to ${cc.loan_amount} at ${cc.loan_rate})
+
+RECENT SALES (last 10):
+${recentSales}
+
+RECENT EXPENSES (last 5):
+${recentExpenses}
+
+YOU CAN HELP WITH:
+- Sales forecast & trend analysis using actual data above
+- Cost reduction & supply chain advice
+- Social media content (Instagram, WhatsApp, TikTok captions/scripts)
+- ASEAN export opportunities
+- Loan eligibility & tips for ${cc.loan_program}
+- Pricing strategy
+- Any other business question
+
+USER QUESTION: ${text}`;
+
+    let reply = '';
+    try {
+        reply = await genText(prompt);
+    } catch {
+        reply = lang === 'bm' ? '❌ Maaf, ada masalah. Cuba lagi.' : '❌ Sorry, something went wrong. Try again.';
+    }
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🤖 *BizBuddy AI:*\n\n${reply}\n\n_(Tanya lagi atau taip *MENU*)_`
+        : `🤖 *BizBuddy AI:*\n\n${reply}\n\n_(Ask more or type *MENU*)_`
+    );
+}
+
+module.exports = { handleAiChat };
+
+
+// ============================================================
+// FILE: handlers/image.js
+// ============================================================
+
+const axios = require('axios');
+const { db, FieldValue } = require('../db');
+const { getCountry, getCurrency, today } = require('../config');
+const { genTextWithImage, genTextWithAudio, parseJson } = require('../gemini');
+const { sendMessage } = require('../send');
+const { generateCreditScore } = require('../features/credit');
+
+const WA_TOKEN = process.env.WA_ACCESS_TOKEN;
+
+async function downloadImage(imageId) {
+    const infoRes = await axios.get(
+        `https://graph.facebook.com/v18.0/${imageId}`,
+        { headers: { Authorization: `Bearer ${WA_TOKEN}` } }
+    );
+    const imageUrl = infoRes.data.url;
+    const imgRes = await axios.get(imageUrl, {
+        headers: { Authorization: `Bearer ${WA_TOKEN}` },
+        responseType: 'arraybuffer',
+    });
+    const mimeType = imgRes.headers['content-type'] || 'image/jpeg';
+    return { buffer: Buffer.from(imgRes.data), mimeType };
+}
+
+async function handleImage(phone, imageId) {
+    const userRef = db.collection('users').doc(phone);
+    const snap = await userRef.get();
+    const userData = snap.exists ? snap.data() : {};
+    const lang = userData.language || 'bm';
+    const state = userData.state || 'menu';
+
+    // Loan doc upload: don't process image, just store media ID
+    if (state === 'loan_doc_upload') {
+        const { handleDocUpload } = require('../features/loan_agent');
+        await handleDocUpload(phone, imageId, userRef);
+        return;
+    }
+
+    await sendMessage(phone, lang === 'bm' ? '📸 Gambar diterima! Sedang menganalisis... ⏳' : '📸 Image received! Analyzing... ⏳');
+
+    let buffer, mimeType;
+    try {
+        ({ buffer, mimeType } = await downloadImage(imageId));
+    } catch (err) {
+        console.error('[handleImage] download failed:', err.message);
+        await sendMessage(phone, lang === 'bm' ? '❌ Gagal muat turun gambar. Cuba lagi.' : '❌ Failed to download image. Try again.');
+        return;
+    }
+
+    // Route based on state
+    if (state === 'await_ssm_cert' || state === 'await_ssm_cert_then_score') {
+        await handleSsmVerification(phone, userRef, userData, buffer, mimeType, state === 'await_ssm_cert_then_score');
+        return;
+    }
+    if (['await_bank_doc_then_reg', 'await_bank_doc_then_score', 'await_bank_doc'].includes(state)) {
+        await handleBankVerification(phone, userRef, userData, buffer, mimeType, state);
+        return;
+    }
+
+    // Triage — SSM cert or payment?
+    const triagePrompt = `Analyze this image carefully. What type of document is it?
+Return ONLY valid JSON, nothing else:
+{"doc_type": "ssm_cert" | "payment" | "other", "confidence": "high" | "medium" | "low"}
+"ssm_cert" = Malaysian SSM business registration certificate, or NIB/DTI equivalent
+"payment" = receipt, invoice, bank transfer, payment screenshot, QR payment confirmation
+"other" = anything else`;
+
+    let triageData = { doc_type: 'other' };
+    try { triageData = parseJson(await genTextWithImage(triagePrompt, buffer, mimeType)); } catch { /* fallback */ }
+
+    if (triageData.doc_type === 'ssm_cert') {
+        await handleSsmVerification(phone, userRef, userData, buffer, mimeType, false);
+        return;
+    }
+
+    // Payment screenshot flow
+    const payPrompt = `Analyze this image. Is this a payment/transaction receipt or screenshot?
+Return ONLY valid JSON nothing else:
+{"amount": number, "item": "string", "is_payment": true, "type": "sale" | "expense"}
+sale = customer paid you (payment received, sales receipt, incoming transfer)
+expense = you paid someone (purchase receipt, supplier invoice, outgoing payment)
+If not a payment/receipt: {"amount": 0, "item": "unknown", "is_payment": false, "type": "sale"}`;
+
+    let payData = { amount: 0, is_payment: false, type: 'sale' };
+    try { payData = parseJson(await genTextWithImage(payPrompt, buffer, mimeType)); } catch { /* fallback */ }
+
+    if (payData.is_payment && payData.amount > 0) {
+        const cur = getCurrency(userData);
+        const todayStr = today();
+        const isExpense = payData.type === 'expense';
+        const itemClean = String(payData.item || '').replace(/^["']|["']$/g, '') || (isExpense ? (lang === 'bm' ? 'Perbelanjaan' : 'Expense') : (lang === 'bm' ? 'Jualan' : 'Sale'));
+        const record = { amount: payData.amount, item: itemClean, date: todayStr, source: 'screenshot' };
+
+        await userRef.update({
+            [isExpense ? 'expenses' : 'sales']: FieldValue.arrayUnion(record),
+        });
+
+        // Running totals for today
+        const fresh = (await userRef.get()).data();
+        const todaySales = (fresh.sales || []).filter(s => s.date === todayStr).reduce((sum, x) => sum + (x.amount || 0), 0);
+        const todayExpenses = (fresh.expenses || []).filter(e => e.date === todayStr).reduce((sum, x) => sum + (x.amount || 0), 0);
+        const runningLine = todayExpenses > 0
+            ? (lang === 'bm'
+                ? `\n\n📈 Jualan hari ini: *${cur}${todaySales.toLocaleString()}* | 💸 Belanja: *${cur}${todayExpenses.toLocaleString()}* | 💰 Bersih: *${cur}${(todaySales - todayExpenses).toLocaleString()}*`
+                : `\n\n📈 Today sales: *${cur}${todaySales.toLocaleString()}* | 💸 Expenses: *${cur}${todayExpenses.toLocaleString()}* | 💰 Net: *${cur}${(todaySales - todayExpenses).toLocaleString()}*`)
+            : (lang === 'bm'
+                ? `\n\n📈 Jualan hari ini: *${cur}${todaySales.toLocaleString()}*`
+                : `\n\n📈 Today's sales: *${cur}${todaySales.toLocaleString()}*`);
+
+        const continueHint = state === 'log_sale'
+            ? (lang === 'bm' ? '\n\nTerus rekod atau taip *MENU* untuk kembali' : '\n\nKeep recording or type *MENU* to go back')
+            : (lang === 'bm' ? '\n\nTaip *MENU* untuk kembali' : '\n\nType *MENU* to go back');
+
+        await sendMessage(phone, isExpense
+            ? (lang === 'bm'
+                ? `✅ *Perbelanjaan direkod dari gambar!*\n\n💸 Jumlah: ${cur}${payData.amount.toLocaleString()}\n📦 Item: ${itemClean}${runningLine}${continueHint}`
+                : `✅ *Expense recorded from image!*\n\n💸 Amount: ${cur}${payData.amount.toLocaleString()}\n📦 Item: ${itemClean}${runningLine}${continueHint}`)
+            : (lang === 'bm'
+                ? `✅ *Bayaran direkod dari gambar!*\n\n💵 Jumlah: ${cur}${payData.amount.toLocaleString()}\n📦 Item: ${itemClean}${runningLine}${continueHint}`
+                : `✅ *Payment recorded from image!*\n\n💵 Amount: ${cur}${payData.amount.toLocaleString()}\n📦 Item: ${itemClean}${runningLine}${continueHint}`)
+        );
+    } else {
+        if (state === 'log_sale') {
+            await sendMessage(phone, lang === 'bm'
+                ? 'Saya tidak dapat kesan jumlah dalam gambar ini. Cuba hantar gambar yang lebih jelas, atau taip jualan awak sebagai teks.\n\nContoh: _"Jual nasi lemak RM15"_\n\nTaip *MENU* untuk kembali'
+                : 'I could not detect an amount in this image. Try a clearer screenshot, or type your sale as text.\n\nExample: _"Sold nasi lemak RM15"_\n\nType *MENU* to go back'
+            );
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? 'Saya tidak dapat mengesan bayaran dalam gambar ini.\nCuba hantar screenshot yang lebih jelas.\n\n💡 _Jika ini sijil SSM/pendaftaran perniagaan, hantar semasa dalam menu Skor Kredit._\n\nTaip *MENU* untuk kembali'
+                : 'I could not detect a payment in this image.\nPlease send a clearer screenshot.\n\n💡 _If this is your SSM/business registration cert, send it during the Credit Score flow._\n\nType *MENU* to go back'
+            );
+        }
+    }
+}
+
+async function handleSsmVerification(phone, userRef, userData, buffer, mimeType, afterScore = false) {
+    const lang = userData.language || 'bm';
+    const cc = getCountry(userData);
+    const regType = cc.registration;
+    const registeredBizName = (userData.business_name || '').trim().toLowerCase();
+
+    const extractPrompt = `You are verifying a business registration certificate from ${cc.name}. The registration body is ${regType}.
+Extract the following from this certificate image. Return ONLY valid JSON, nothing else:
+{"is_registration_cert": true or false, "reg_number": "string", "business_name": "string", "owner_name": "string or null", "reg_date": "string or null", "status": "active or unknown", "cert_type": "string"}
+If this is NOT a ${regType} registration certificate, set "is_registration_cert": false.`;
+
+    let certData = { is_registration_cert: false };
+    try { certData = parseJson(await genTextWithImage(extractPrompt, buffer, mimeType)); } catch { /* fallback */ }
+
+    if (!certData.is_registration_cert) {
+        await sendMessage(phone, lang === 'bm'
+            ? `❌ *Dokumen tidak dikenali sebagai sijil ${regType}.*\n\nSila hantar gambar sijil pendaftaran perniagaan ${regType} yang jelas.\n\nTaip *MENU* untuk kembali`
+            : `❌ *Document not recognised as a ${regType} registration certificate.*\n\nPlease send a clear photo of your ${regType} business registration certificate.\n\nType *MENU* to go back`
+        );
+        return;
+    }
+
+    const certBizName = (certData.business_name || '').trim().toLowerCase();
+    const regNumber = certData.reg_number || 'N/A';
+    const regDate = certData.reg_date || 'N/A';
+    const certType = certData.cert_type || regType;
+    const ownerOnCert = certData.owner_name || '';
+
+    // Fuzzy name match
+    const stopwords = new Set(['sdn','bhd','enterprise','trading','the','and','co','sdn.','bhd.']);
+    const regWords = new Set(registeredBizName.split(' ').filter(w => !stopwords.has(w)));
+    const certWords = new Set(certBizName.split(' ').filter(w => !stopwords.has(w)));
+    let nameMatch = true;
+    if (regWords.size > 0 && certWords.size > 0) {
+        const overlap = [...regWords].filter(w => certWords.has(w)).length;
+        nameMatch = overlap / Math.max(regWords.size, 1) >= 0.5;
+    }
+
+    await userRef.update({
+        has_ssm: 'yes', ssm_verified: true, ssm_reg_number: regNumber,
+        ssm_cert_type: certType, ssm_reg_date: regDate,
+        ssm_cert_business_name: certData.business_name || '',
+        ssm_name_match: nameMatch, ssm_verified_date: today(), state: 'menu',
+    });
+
+    const matchIcon = nameMatch ? '✅' : '⚠️';
+    const matchBm = nameMatch ? 'Nama perniagaan *sepadan*!' : 'Nama perniagaan *tidak sepadan sepenuhnya* — kemaskini jika perlu.';
+    const matchEn = nameMatch ? 'Business name *matches* your profile!' : "Business name *doesn't fully match* — please update if needed.";
+    const ownerLine = ownerOnCert ? (lang === 'bm' ? `👤 Nama Pemilik: ${ownerOnCert}\n` : `👤 Owner Name: ${ownerOnCert}\n`) : '';
+    const nextLine = afterScore
+        ? (lang === 'bm' ? '⏳ Sedang mengira skor kredit awak...' : '⏳ Calculating your credit score...')
+        : (lang === 'bm' ? 'Taip *SKOR* untuk lihat skor kredit terbaru awak\nTaip *MENU* untuk kembali' : 'Type *SCORE* to see your updated credit score\nType *MENU* to go back');
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🎉 *Sijil ${regType} Disahkan!*\n\n━━━━━━━━━━━━━━━━━━━━\n📋 *Butiran Sijil*\n━━━━━━━━━━━━━━━━━━━━\n🏢 Nama Perniagaan: *${certData.business_name || 'N/A'}*\n🔢 No. Pendaftaran: *${regNumber}*\n📄 Jenis: ${certType}\n📅 Tarikh Daftar: ${regDate}\n${ownerLine}━━━━━━━━━━━━━━━━━━━━\n${matchIcon} ${matchBm}\n\n🏅 *+10 mata kredit* untuk pengesahan sijil!\n\n${nextLine}`
+        : `🎉 *${regType} Certificate Verified!*\n\n━━━━━━━━━━━━━━━━━━━━\n📋 *Certificate Details*\n━━━━━━━━━━━━━━━━━━━━\n🏢 Business Name: *${certData.business_name || 'N/A'}*\n🔢 Registration No: *${regNumber}*\n📄 Type: ${certType}\n📅 Registration Date: ${regDate}\n${ownerLine}━━━━━━━━━━━━━━━━━━━━\n${matchIcon} ${matchEn}\n\n🏅 *+10 credit points* for certificate verification!\n\n${nextLine}`
+    );
+
+    if (afterScore) await generateCreditScore(phone, userRef);
+}
+
+async function handleBankVerification(phone, userRef, userData, buffer, mimeType, mode) {
+    const lang = userData.language || 'bm';
+    const ownerName = (userData.owner_name || '').trim().toLowerCase();
+
+    const triagePrompt = `Analyze this image. What type of financial document is it?
+Return ONLY valid JSON:
+{"doc_type": "bank_statement" | "passbook" | "online_banking" | "e_wallet" | "other", "confidence": "high" | "medium" | "low"}`;
+
+    let triageData = { doc_type: 'other' };
+    try { triageData = parseJson(await genTextWithImage(triagePrompt, buffer, mimeType)); } catch { /* fallback */ }
+
+    const docType = triageData.doc_type || 'other';
+    if (docType === 'other') {
+        await sendMessage(phone, lang === 'bm'
+            ? '❌ *Dokumen tidak dikenali sebagai dokumen kewangan.*\n\nSila hantar:\n• Screenshot penyata bank\n• Gambar buku bank (passbook)\n• Screenshot online banking / e-wallet\n\nTaip *LANGKAU* jika tidak mahu sahkan sekarang'
+            : '❌ *Document not recognised as a financial document.*\n\nPlease send:\n• Bank statement screenshot\n• Bank book (passbook) photo\n• Online banking / e-wallet screenshot\n\nType *SKIP* if you don\'t want to verify now'
+        );
+        return;
+    }
+
+    const extractPrompts = {
+        bank_statement: 'Extract from this bank statement. Return ONLY valid JSON:\n{"is_bank_document": true, "account_holder_name": "name as printed", "bank_name": "bank name", "account_number_last4": "last 4 digits or null", "business_name_on_account": "business name if present else null", "doc_type": "statement"}',
+        passbook: 'Extract from this bank passbook. Return ONLY valid JSON:\n{"is_bank_document": true, "account_holder_name": "name on passbook", "bank_name": "bank name", "account_number_last4": "last 4 digits or null", "business_name_on_account": null, "doc_type": "passbook"}',
+        online_banking: 'Extract from this online/mobile banking screenshot. Return ONLY valid JSON:\n{"is_bank_document": true, "account_holder_name": "name shown in app", "bank_name": "bank or app name", "account_number_last4": "last 4 digits or null", "business_name_on_account": null, "doc_type": "online_banking"}',
+        e_wallet: 'Extract from this e-wallet screenshot. Return ONLY valid JSON:\n{"is_bank_document": true, "account_holder_name": "registered name", "bank_name": "wallet name (TNG/GoPay/GCash/Maya/Dana)", "account_number_last4": "last 4 of phone/account or null", "business_name_on_account": null, "doc_type": "e_wallet"}',
+    };
+
+    let bankData = { is_bank_document: false };
+    try {
+        bankData = parseJson(await genTextWithImage(extractPrompts[docType] || extractPrompts.online_banking, buffer, mimeType));
+        bankData.is_bank_document = true;
+    } catch { /* fallback */ }
+
+    if (!bankData.is_bank_document) {
+        await sendMessage(phone, lang === 'bm' ? '❌ Gagal membaca dokumen. Sila cuba hantar gambar yang lebih jelas.\n\nTaip *LANGKAU* untuk langkau' : '❌ Failed to read document. Please try a clearer image.\n\nType *SKIP* to skip');
+        return;
+    }
+
+    const holderName = (bankData.account_holder_name || '').trim().toLowerCase();
+    const bizOnAcc = (bankData.business_name_on_account || '').trim().toLowerCase();
+    const bankName = bankData.bank_name || 'N/A';
+    const accLast4 = bankData.account_number_last4 || '';
+
+    // Fuzzy name match
+    const stopwords = new Set(['sdn','bhd','enterprise','trading','bin','binti','bte','mr','ms','mrs']);
+    const ownerWords = new Set(ownerName.split(' ').filter(w => !stopwords.has(w)));
+    const holderWords = new Set(holderName.split(' ').filter(w => !stopwords.has(w)));
+    const bizWords = new Set(bizOnAcc.split(' ').filter(w => !stopwords.has(w)));
+    let nameMatch = true;
+    if (ownerWords.size > 0 && (holderWords.size > 0 || bizWords.size > 0)) {
+        const ov1 = [...ownerWords].filter(w => holderWords.has(w)).length / Math.max(ownerWords.size, 1);
+        const ov2 = bizWords.size > 0 ? [...ownerWords].filter(w => bizWords.has(w)).length / Math.max(ownerWords.size, 1) : 0;
+        nameMatch = Math.max(ov1, ov2) >= 0.5;
+    }
+
+    await userRef.update({
+        has_bank_account: 'yes', bank_verified: true, bank_name: bankName,
+        bank_holder_name: bankData.account_holder_name || '',
+        bank_acc_last4: accLast4, bank_name_match: nameMatch,
+        bank_verified_date: today(),
+    });
+
+    const matchIcon = nameMatch ? '✅' : '⚠️';
+    const matchBm = nameMatch ? 'Nama *sepadan* dengan profil awak!' : 'Nama *tidak sepadan sepenuhnya* — kemaskini profil jika perlu.';
+    const matchEn = nameMatch ? 'Name *matches* your profile!' : "Name *doesn't fully match* — update profile if needed.";
+    const accLine = accLast4 ? (lang === 'bm' ? `🔢 No. Akaun: ****${accLast4}\n` : `🔢 Account: ****${accLast4}\n`) : '';
+    const docLabelBm = { statement: 'Penyata Bank', passbook: 'Buku Bank', online_banking: 'Online Banking', e_wallet: 'E-Wallet' }[docType] || 'Dokumen Bank';
+    const docLabelEn = { statement: 'Bank Statement', passbook: 'Passbook', online_banking: 'Online Banking', e_wallet: 'E-Wallet' }[docType] || 'Bank Document';
+
+    await sendMessage(phone, lang === 'bm'
+        ? `🎉 *Akaun Bank Disahkan!*\n\n━━━━━━━━━━━━━━━━━━━━\n🏦 Bank: *${bankName}*\n👤 Pemegang: *${bankData.account_holder_name || 'N/A'}*\n${accLine}📄 Jenis: ${docLabelBm}\n━━━━━━━━━━━━━━━━━━━━\n${matchIcon} ${matchBm}\n\n🏅 *+10 mata kredit penuh* untuk akaun bank yang disahkan!\n`
+        : `🎉 *Bank Account Verified!*\n\n━━━━━━━━━━━━━━━━━━━━\n🏦 Bank: *${bankName}*\n👤 Holder: *${bankData.account_holder_name || 'N/A'}*\n${accLine}📄 Type: ${docLabelEn}\n━━━━━━━━━━━━━━━━━━━━\n${matchIcon} ${matchEn}\n\n🏅 *+10 full credit points* for verified bank account!\n`
+    );
+
+    // Route based on mode
+    if (mode === 'await_bank_doc_then_reg') {
+        const cc = getCountry((await userRef.get()).data());
+        await userRef.update({ state: 'credit_q3' });
+        await sendMessage(phone, lang === 'bm'
+            ? `\n⏩ Soalan seterusnya...\n\nSoalan 3️⃣: ${cc.reg_question_bm}\n_(Balas: Ya / Tidak)_`
+            : `\n⏩ Next question...\n\nQuestion 3️⃣: ${cc.reg_question_en}\n_(Reply: Yes / No)_`
+        );
+    } else {
+        await userRef.update({ state: 'menu' });
+        await sendMessage(phone, lang === 'bm' ? 'Taip *SKOR* untuk lihat skor kredit terbaru awak\nTaip *MENU* untuk kembali' : 'Type *SCORE* to see your updated credit score\nType *MENU* to go back');
+    }
+}
+
+async function transcribeAudio(phone, audioId) {
+    const { handleText } = require('./text');
+    const userRef = db.collection('users').doc(phone);
+    const snap = await userRef.get();
+    const lang = snap.exists ? (snap.data().language || 'bm') : 'bm';
+
+    await sendMessage(phone, lang === 'bm' ? '🎙️ Nota suara diterima! Sedang proses...' : '🎙️ Voice note received! Processing...');
+
+    let buffer, mimeType;
+    try {
+        ({ buffer, mimeType } = await downloadImage(audioId));
+    } catch (err) {
+        console.error('[transcribeAudio] download failed:', err.message);
+        await sendMessage(phone, lang === 'bm' ? '❌ Gagal proses nota suara. Cuba lagi.' : '❌ Failed to process voice note. Try again.');
+        return;
+    }
+
+    const prompt = `Transcribe this audio message accurately. Output ONLY the spoken words, no explanations or punctuation changes. Preserve the original language (Malay or English).`;
+    let transcript = '';
+    try {
+        transcript = await genTextWithAudio(prompt, buffer, mimeType || 'audio/ogg');
+    } catch (err) {
+        console.error('[transcribeAudio] transcription failed:', err.message);
+        await sendMessage(phone, lang === 'bm' ? '❌ Gagal transkripsi suara. Cuba taip teks.' : '❌ Could not transcribe voice. Please type instead.');
+        return;
+    }
+
+    transcript = transcript.trim();
+    if (!transcript) {
+        await sendMessage(phone, lang === 'bm' ? '❌ Tiada teks dikesan. Cuba lagi dengan lebih jelas.' : '❌ No speech detected. Try again more clearly.');
+        return;
+    }
+
+    console.log(`[VOICE→TEXT] ${phone}: ${transcript}`);
+    await handleText(phone, transcript);
+}
+
+module.exports = { handleImage, transcribeAudio };
+
+
+// ============================================================
+// FILE: handlers/menu.js
+// ============================================================
+
+const { getCountry } = require('../config');
+const { sendMessage } = require('../send');
+const { generateCreditScore } = require('../features/credit');
+const { showProfile, showCertificate, showScoreBreakdown } = require('../features/profile');
+const { showSalesSummary } = require('../features/summary');
+const { showLoanChecklist, showLoanReferral } = require('../features/loan');
+
+async function handleMenu(phone, text, userRef) {
+    const snap = await userRef.get();
+    const userData = snap.data();
+    const lang = userData.language || 'bm';
+    const name = userData.owner_name || userData.business_name || 'Peniaga';
+    const cc = getCountry(userData);
+    const tUpper = text.toUpperCase().trim();
+
+    if (['MENU', 'HI', 'HAI', 'HELLO', 'START'].includes(tUpper)) {
+        if (lang === 'bm') {
+            await sendMessage(phone,
+                `📱 *Menu BizBuddy — ${name}*\n\n` +
+                '1️⃣ Rekod Jualan\n' +
+                '2️⃣ Jana Skor Kredit\n' +
+                '3️⃣ Ringkasan Jualan\n' +
+                '4️⃣ 🤖 Chat dengan AI\n' +
+                '5️⃣ 🏦 Loan Agent — Cari Pinjaman\n\n' +
+                '💡 Taip *PROFIL* untuk profil perniagaan\n' +
+                '💡 Taip *SIJIL* untuk sijil kredit\n' +
+                '💡 Taip *PECAHAN* untuk pecahan skor\n' +
+                '💡 Taip *PINJAMAN* untuk semak kelayakan pinjaman\n' +
+                '💡 Taip *STATUS* untuk semak permohonan pinjaman\n' +
+                '💡 Taip *RUJUK* untuk surat rujukan pinjaman\n' +
+                '💡 Taip *ENGLISH* untuk tukar bahasa\n' +
+                '🔒 Taip *DATA* untuk lihat data yang disimpan\n\n' +
+                '_Balas dengan nombor pilihan_'
+            );
+        } else {
+            await sendMessage(phone,
+                `📱 *BizBuddy Menu — ${name}*\n\n` +
+                '1️⃣ Record Sales\n' +
+                '2️⃣ Generate Credit Score\n' +
+                '3️⃣ Sales Summary\n' +
+                '4️⃣ 🤖 Chat with AI\n' +
+                '5️⃣ 🏦 Loan Agent — Find a Loan\n\n' +
+                '💡 Type *PROFILE* for business profile\n' +
+                '💡 Type *CERTIFICATE* for credit certificate\n' +
+                '💡 Type *BREAKDOWN* for score breakdown\n' +
+                '💡 Type *LOAN* to check loan eligibility\n' +
+                '💡 Type *STATUS* to check loan applications\n' +
+                '💡 Type *REFER* for loan referral letter\n' +
+                '💡 Type *BM* to switch to Bahasa Malaysia\n' +
+                '🔒 Type *DATA* to view your stored data\n\n' +
+                '_Reply with your choice number_'
+            );
+        }
+        return;
+    }
+
+    if (tUpper === '1') {
+        await userRef.update({ state: 'log_sale' });
+        await sendMessage(phone, lang === 'bm'
+            ? `💰 *Rekod Jualan*\n\nCeritakan jualan awak hari ini:\n\n✍️ *Taip* jualan awak\n_(Contoh: ${cc.sale_example_bm})_\n\n📸 *ATAU hantar gambar* resit/screenshot bayaran\n🎙️ *ATAU hantar nota suara*\n\n_(Taip MENU untuk kembali)_`
+            : `💰 *Record Sales*\n\nTell me about your sales today:\n\n✍️ *Type* your sale\n_(Example: ${cc.sale_example_en})_\n\n📸 *OR send a photo* of receipt/payment screenshot\n🎙️ *OR send a voice note*\n\n_(Type MENU to go back)_`
+        );
+        return;
+    }
+
+    if (tUpper === '2') {
+        const hasAnswers = userData.biz_age && userData.has_bank_account && userData.has_ssm;
+        if (hasAnswers) {
+            const bankVal = userData.has_bank_account || 'tidak';
+            const ssmVal = userData.has_ssm || 'tidak';
+            const bankVerified = userData.bank_verified || false;
+            const ssmVerified = userData.ssm_verified || false;
+            const fmtBm = (val, v) => val.toLowerCase().startsWith('y') || val.toLowerCase().startsWith('a') ? (v ? 'ya ✅ (disahkan)' : 'ya ⚠️ (belum disahkan)') : 'tidak';
+            const fmtEn = (val, v) => val.toLowerCase().startsWith('y') || val.toLowerCase().startsWith('a') ? (v ? 'yes ✅ (verified)' : 'yes ⚠️ (unverified)') : 'no';
+            await userRef.update({ state: 'credit_confirm' });
+            await sendMessage(phone, lang === 'bm'
+                ? `📊 *Jana Skor Kredit*\n\nMaklumat semasa awak:\n\n🏦 Akaun bank: *${fmtBm(bankVal, bankVerified)}*\n📝 ${cc.registration}: *${fmtBm(ssmVal, ssmVerified)}*\n\nAdakah maklumat ini masih *sama*?\n\nTaip *YA* → Jana skor terus\nTaip *TIDAK* → Kemaskini maklumat`
+                : `📊 *Generate Credit Score*\n\nYour current info:\n\n🏦 Bank account: *${fmtEn(bankVal, bankVerified)}*\n📝 ${cc.registration}: *${fmtEn(ssmVal, ssmVerified)}*\n\nIs this info still *correct*?\n\nType *YES* → Generate score now\nType *NO* → Update info`
+            );
+        } else {
+            await userRef.update({ state: 'credit_q1' });
+            await sendMessage(phone, lang === 'bm'
+                ? '📊 *Jana Skor Kredit*\n\nSaya perlu tanya 3 soalan untuk skor yang tepat.\n\nSoalan 1️⃣: Berapa lama perniagaan awak dah beroperasi?\n_(Contoh: 3 bulan, 1 tahun, 5 tahun)_'
+                : '📊 *Generate Credit Score*\n\nI need to ask 3 questions for an accurate score.\n\nQuestion 1️⃣: How long has your business been operating?\n_(Example: 3 months, 1 year, 5 years)_'
+            );
+        }
+        return;
+    }
+
+    if (tUpper === '3') { await showSalesSummary(phone, userRef); return; }
+
+    if (tUpper === '4') {
+        await userRef.update({ state: 'ai_chat' });
+        await sendMessage(phone, lang === 'bm'
+            ? `🤖 *BizBuddy AI*\n\nTanya apa sahaja! Contoh:\n• _"Ramalan jualan saya bulan depan?"_\n• _"Buatkan caption Instagram untuk ${userData.product || 'produk saya'}"_\n• _"Macam mana nak kurangkan kos?"_\n• _"Boleh saya eksport ke negara lain?"_\n• _"Macam mana nak mohon ${cc.loan_program}?"_\n\n_(Taip MENU untuk kembali)_`
+            : `🤖 *BizBuddy AI*\n\nAsk me anything! Examples:\n• _"What's my sales forecast for next month?"_\n• _"Write an Instagram caption for ${userData.product || 'my product'}"_\n• _"How can I reduce my costs?"_\n• _"Can I export to other countries?"_\n• _"How do I apply for ${cc.loan_program}?"_\n\n_(Type MENU to go back)_`
+        );
+        return;
+    }
+
+    if (tUpper === '5') {
+        const existingMatches = userData.loan_matches;
+        const validCached = existingMatches && existingMatches.length > 0 && existingMatches[0].matchPct !== undefined;
+        if (validCached) {
+            const { sendMatches } = require('../features/loan_agent');
+            await sendMatches(phone, userRef, existingMatches, userData.provisional_score || userData.credit_score || 0, lang);
+            return;
+        }
+        const name2 = userData.owner_name || userData.business_name || (lang === 'bm' ? 'Peniaga' : 'there');
+        const existingBizName = userData.business_name;
+        if (existingBizName) {
+            // Pre-fill from profile, skip Q1
+            await userRef.update({ state: 'express_loan_q2', express_loan_data: { business_name: existingBizName } });
+            await sendMessage(phone, lang === 'bm'
+                ? `🏦 *BizBuddy Loan Agent*\n\nHai ${name2}! Jom cari pinjaman terbaik untuk awak!\n\n✅ Perniagaan: *${existingBizName}*\n\nSoalan 2️⃣: Apa *jenis perniagaan* awak?\n\n1️⃣ 🍜 Makanan & Minuman\n2️⃣ 🛍️ Runcit / Perniagaan\n3️⃣ 🚚 Perkhidmatan\n4️⃣ 🏭 Pembuatan\n5️⃣ 📦 Lain-lain\n\n_Balas dengan nombor_`
+                : `🏦 *BizBuddy Loan Agent*\n\nHi ${name2}! Let's find your best loan match!\n\n✅ Business: *${existingBizName}*\n\nQuestion 2️⃣: What *type of business* is it?\n\n1️⃣ 🍜 Food & Beverage\n2️⃣ 🛍️ Retail / Trading\n3️⃣ 🚚 Services\n4️⃣ 🏭 Manufacturing\n5️⃣ 📦 Other\n\n_Reply with a number_`
+            );
+        } else {
+            await userRef.update({ state: 'express_loan_q1', express_loan_data: {} });
+            await sendMessage(phone, lang === 'bm'
+                ? `🏦 *BizBuddy Loan Agent*\n\nHai ${name2}! Saya akan cari pinjaman terbaik untuk awak dalam masa 2 minit!\n\nSoalan 1️⃣: Apa *nama perniagaan* awak?\n_(Contoh: Kedai Makan Aisyah, Tudung Sarah)_`
+                : `🏦 *BizBuddy Loan Agent*\n\nHi ${name2}! I'll find your best loan match in under 2 minutes!\n\nQuestion 1️⃣: What is your *business name*?\n_(Example: Ahmad Catering, Siti Fashion House)_`
+            );
+        }
+        return;
+    }
+
+    if (tUpper === 'STATUS' || tUpper === 'PERMOHONAN' || tUpper === 'APPLICATION') {
+        const { showLoanStatus } = require('../features/loan_agent');
+        await showLoanStatus(phone, userRef);
+        return;
+    }
+
+    await sendMessage(phone, lang === 'bm' ? 'Taip *MENU* untuk lihat pilihan awak 😊' : 'Type *MENU* to see your options 😊');
+}
+
+module.exports = handleMenu;
+
+
+// ============================================================
+// FILE: handlers/text.js
+// ============================================================
+
+const { db, FieldValue } = require('../db');
+const { getCountry, getCurrency, isEnglish, today } = require('../config');
+const { genText, parseJson } = require('../gemini');
+const { sendMessage } = require('../send');
+const handleMenu = require('./menu');
+const { handleLogSale } = require('./sale');
+const { handleAiChat } = require('./chat');
+const { handleContentMenu, handleContentGenerate } = require('./content');
+const { generateCreditScore } = require('../features/credit');
+const { showProfile, showStoredData, showCertificate, showScoreBreakdown } = require('../features/profile');
+const { showSalesSummary } = require('../features/summary');
+const { showLoanChecklist, showLoanReferral } = require('../features/loan');
+const {
+    matchLoans, sendMatches, handleLoanSelection, handleDocUpload,
+    showLoanStatus, handleExpressQ1, handleExpressQ2, handleExpressQ3,
+    handleExpressQ4, handleExpressQ5, handleExpressQ6,
+} = require('../features/loan_agent');
+
+const LOAN_KEYWORDS = ['loan', 'pinjaman', 'pinjam', 'borrow', 'financing', 'pembiayaan', 'hutang', 'kredit baru', 'apply loan', 'mohon pinjaman', 'nak pinjam', 'need money', 'need funding'];
+
+const YES = new Set(['ya', 'yes', 'y', 'sudah', 'ada', 'dah', 'yep', 'yup', 'ye', 'agree', 'setuju', 'ok']);
+const NO  = new Set(['tidak', 'no', 'n', 'belum', 'tak', 'tiada', 'nope']);
+
+async function handleText(phone, text) {
+    const userRef = db.collection('users').doc(phone);
+    const userSnap = await userRef.get();
+    const textUpper = text.toUpperCase().trim();
+    const lang = userSnap.exists ? (userSnap.data().language || 'bm') : 'bm';
+
+    // ── Web Pre-Match token: "Apply BB-XXXXXXXX" — overrides any state ──
+    if (/^apply\s+BB-[A-Z0-9]{8}$/i.test(text.trim())) {
+        const token = text.trim().split(/\s+/)[1].toUpperCase();
+        const signupSnap = await db.collection('landing_signups').doc(token).get();
+
+        if (!signupSnap.exists) {
+            await sendMessage(phone, lang === 'bm'
+                ? '❌ Pautan permohonan ini tidak sah atau tidak dijumpai.\n\nTaip *MENU* untuk mulakan semula.'
+                : '❌ This application link is invalid or not found.\n\nType *MENU* to start fresh.');
+            return;
+        }
+
+        const signup = signupSnap.data();
+
+        if (signup.expires_at && signup.expires_at.toDate() < new Date()) {
+            await sendMessage(phone, lang === 'bm'
+                ? '⏰ Pautan ini telah tamat tempoh (48 jam).\n\nTaip *5* untuk mohon semula atau *MENU* untuk kembali.'
+                : '⏰ This application link has expired (48 hours).\n\nType *5* to apply again or *MENU* to go back.');
+            return;
+        }
+
+        // Find the selected loan from matches
+        const matches = signup.matches || [];
+        const selectedId = signup.selected_loan_id;
+        const selectedMatch = selectedId
+            ? matches.find(m => m.loan_product_id === selectedId)
+            : matches[0]; // fallback to best match
+
+        if (!selectedMatch) {
+            await sendMessage(phone, lang === 'bm'
+                ? '⚠️ Tiada padanan pinjaman dalam permohonan ini.\n\nTaip *5* untuk cari pinjaman atau *MENU* untuk kembali.'
+                : '⚠️ No loan match found in this application.\n\nType *5* to find loans or *MENU* to go back.');
+            return;
+        }
+
+        // Upsert users/{phone} — preserve existing data if returning user
+        const existingUser = userSnap.exists ? userSnap.data() : {};
+        const userLang = existingUser.language || 'en';
+
+        await userRef.set({
+            ...existingUser,
+            owner_name: existingUser.owner_name || signup.name,
+            country: existingUser.country || signup.country || 'MY',
+            language: existingUser.language || 'en',
+            sales: existingUser.sales || [],
+            registered_date: existingUser.registered_date || today(),
+            express_loan_data: signup.express_loan_data || {},
+            selected_loan: {
+                id: selectedMatch.loan_product_id,
+                bank_name: selectedMatch.bank_name,
+                product_name: selectedMatch.product_name,
+                max_amount: selectedMatch.amount,
+                interest_rate: selectedMatch.interest_rate,
+                required_docs: selectedMatch.required_docs || [],
+            },
+            state: 'loan_doc_upload',
+        }, { merge: true });
+
+        // Mark token as used
+        await db.collection('landing_signups').doc(token).update({
+            status: 'whatsapp_connected',
+            whatsapp_phone: phone,
+            connected_at: new Date(),
+        });
+
+        const name = existingUser.owner_name || signup.name || 'there';
+        const amt = (selectedMatch.amount || 0).toLocaleString();
+        const docs = (selectedMatch.required_docs || ['IC photo', 'bank statement (last 6 months)'])
+            .map(d => `📎 ${d.replace(/_/g, ' ')}`)
+            .join('\n');
+
+        await sendMessage(phone, userLang === 'bm'
+            ? `👋 *Hai ${name}!*\n\nPadanan pinjaman awak sudah sedia:\n\n🏦 *${selectedMatch.bank_name}* — ${selectedMatch.product_name}\n💰 ${signup.country === 'ID' ? 'Rp' : signup.country === 'PH' ? '₱' : 'RM'}${amt} @ ${selectedMatch.interest_rate}% setahun\n📊 ${selectedMatch.match_percentage}% padanan\n\nUntuk hantar permohonan, saya perlukan:\n${docs}\n\n📤 *Hantar gambar atau dokumen dalam chat ini sekarang.*\n\nTaip *LANGKAU* jika tiada dokumen buat masa ni.`
+            : `👋 *Hi ${name}!*\n\nYour loan match is ready:\n\n🏦 *${selectedMatch.bank_name}* — ${selectedMatch.product_name}\n💰 ${signup.country === 'ID' ? 'Rp' : signup.country === 'PH' ? '₱' : 'RM'}${amt} @ ${selectedMatch.interest_rate}% p.a.\n📊 ${selectedMatch.match_percentage}% match\n\nTo submit your application, I need:\n${docs}\n\n📤 *Send the image or document here in this chat now.*\n\nType *SKIP* if you don't have documents right now.`
+        );
+        return;
+    }
+
+    // ── Language toggle — works anytime ──
+    if (textUpper === 'ENGLISH') {
+        if (userSnap.exists) {
+            await userRef.update({ language: 'en' });
+            const fresh = (await userRef.get()).data();
+            if (fresh.state === 'ask_consent') {
+                await sendMessage(phone,
+                    '👋 *Welcome to BizBuddy!*\n\n' +
+                    "I'll help you build your business profile & credit score in 5 minutes.\n\n" +
+                    '🔒 *Your Privacy & Data:*\n' +
+                    '• BizBuddy stores your business data (name, sales, product) to build your credit profile.\n' +
+                    '• Your data *will not be shared* with any party without your consent.\n' +
+                    '• You can delete all your data anytime by typing *RESET*.\n\n' +
+                    'Type *AGREE* to continue'
+                );
+                return;
+            }
+        }
+        await sendMessage(phone,
+            '🌐 *Language switched to English!*\n\nAll responses will now be in English.\nType *BM* to switch back to Bahasa Malaysia.'
+        );
+        return;
+    }
+
+    if (textUpper === 'BM') {
+        if (userSnap.exists) {
+            await userRef.update({ language: 'bm' });
+            const fresh = (await userRef.get()).data();
+            if (fresh.state === 'ask_consent') {
+                await sendMessage(phone,
+                    '👋 *Selamat datang ke BizBuddy!*\n\n' +
+                    'Saya akan bantu awak bina profil perniagaan & skor kredit dalam masa 5 minit.\n\n' +
+                    '🔒 *Privasi & Data Awak:*\n' +
+                    '• BizBuddy menyimpan data perniagaan awak (nama, jualan, produk) untuk membina profil kredit.\n' +
+                    '• Data awak *tidak akan dikongsi* dengan mana-mana pihak tanpa kebenaran awak.\n' +
+                    '• Awak boleh padam semua data bila-bila masa dengan taip *RESET*.\n\n' +
+                    'Taip *SETUJU* untuk teruskan'
+                );
+                return;
+            }
+        }
+        await sendMessage(phone,
+            '🌐 *Bahasa ditukar ke Bahasa Malaysia!*\n\nSemua respons akan dalam Bahasa Malaysia.\nTaip *ENGLISH* untuk tukar ke Bahasa Inggeris.'
+        );
+        return;
+    }
+
+    // ── New user ──
+    if (!userSnap.exists) {
+        const lowerText = text.toLowerCase();
+        const hasLoanIntent = LOAN_KEYWORDS.some(kw => lowerText.includes(kw));
+        if (hasLoanIntent) {
+            await userRef.set({ state: 'ask_consent_loan_choice', sales: [], language: 'bm' });
+            await sendMessage(phone,
+                '👋 *Selamat datang ke BizBuddy!*\n\n' +
+                '🏦 Awak berminat dengan *pinjaman perniagaan*? Bagus!\n\n' +
+                '🔒 *Privasi awak:* Data disimpan secara selamat dan tidak dikongsi tanpa kebenaran awak. ' +
+                'Awak boleh padam semua data bila-bila masa dengan taip *RESET*.\n\n' +
+                '*Apa yang awak mahu buat?*\n\n' +
+                '1️⃣ ⚡ *Cari pinjaman sekarang* (2 minit)\n' +
+                '2️⃣ 📊 *Bina profil kredit penuh + pinjaman* (5 minit)\n\n' +
+                '_Balas 1 atau 2 (ini juga mengesahkan persetujuan awak)_\n' +
+                '💡 Taip ENGLISH untuk tukar bahasa'
+            );
+        } else {
+            await userRef.set({ state: 'ask_consent', sales: [], language: 'bm' });
+            await sendMessage(phone,
+                '👋 *Selamat datang ke BizBuddy!*\n\n' +
+                'Saya akan bantu awak bina profil perniagaan & skor kredit dalam masa 5 minit.\n\n' +
+                '🔒 *Privasi & Data Awak:*\n' +
+                '• BizBuddy menyimpan data perniagaan awak (nama, jualan, produk) untuk membina profil kredit.\n' +
+                '• Data awak *tidak akan dikongsi* dengan mana-mana pihak tanpa kebenaran awak.\n' +
+                '• Awak boleh padam semua data bila-bila masa dengan taip *RESET*.\n\n' +
+                '💡 _Tip: Taip ENGLISH untuk tukar bahasa_\n\n' +
+                'Taip *SETUJU* untuk teruskan\nTaip *ENGLISH* dahulu jika mahu tukar bahasa'
+            );
+        }
+        return;
+    }
+
+    const userData = userSnap.data();
+    const state = userData.state || 'menu';
+
+    // ── Global commands ──
+    if (textUpper === 'RESET') {
+        await userRef.delete();
+        await sendMessage(phone,
+            lang === 'bm'
+                ? '🔄 *Profil awak telah dipadam.*\n\nTaip *HAI* untuk mulakan semula.'
+                : '🔄 *Your profile has been deleted.*\n\nType *HI* to start again.'
+        );
+        return;
+    }
+
+    if (textUpper === 'PROFIL' || textUpper === 'PROFILE') { await showProfile(phone, userRef); return; }
+    if (textUpper === 'SIJIL' || textUpper === 'CERTIFICATE') { await showCertificate(phone, userRef); return; }
+    if (textUpper === 'PINJAMAN' || textUpper === 'LOAN') { await showLoanChecklist(phone, userRef); return; }
+    if (textUpper === 'DATA') { await showStoredData(phone, userRef); return; }
+    if (textUpper === 'BREAKDOWN' || textUpper === 'PECAHAN') { await showScoreBreakdown(phone, userRef); return; }
+    if (textUpper === 'RUJUK' || textUpper === 'REFER') { await showLoanReferral(phone, userRef); return; }
+    if (['STATUS', 'MY LOAN', 'MY LOANS', 'PERMOHONAN', 'APPLICATION', 'APPLICATIONS'].includes(textUpper)) {
+        await showLoanStatus(phone, userRef); return;
+    }
+
+    if (textUpper === 'KEMASKINI' || textUpper === 'UPDATE') {
+        await userRef.update({ state: 'credit_q1' });
+        await sendMessage(phone,
+            lang === 'bm'
+                ? '🔄 *Kemaskini Maklumat Kredit*\n\nSoalan 1️⃣: Berapa lama perniagaan awak dah beroperasi?\n_(Contoh: 3 bulan, 1 tahun, 5 tahun)_'
+                : '🔄 *Update Credit Info*\n\nQuestion 1️⃣: How long has your business been operating?\n_(Example: 3 months, 1 year, 5 years)_'
+        );
+        return;
+    }
+
+    if (textUpper === 'BATAL' || textUpper === 'CANCEL') {
+        if (state === 'await_ssm_cert') {
+            await userRef.update({ state: 'menu' });
+            await sendMessage(phone,
+                lang === 'bm' ? '❌ Pengesahan SSM dibatalkan.\n\nTaip *MENU* untuk kembali.' : '❌ SSM verification cancelled.\n\nType *MENU* to go back.'
+            );
+        } else {
+            await sendMessage(phone,
+                lang === 'bm' ? 'Tiada tindakan untuk dibatalkan.\n\nTaip *MENU* untuk kembali.' : 'Nothing to cancel.\n\nType *MENU* to go back.'
+            );
+        }
+        return;
+    }
+
+    // ── SKIP ──
+    if (textUpper === 'LANGKAU' || textUpper === 'SKIP') {
+        if (state === 'content_generate') {
+            // fall through to content handler
+        } else if (state === 'await_ssm_cert_then_score') {
+            await userRef.update({ state: 'menu' });
+            await sendMessage(phone, lang === 'bm' ? '⏭️ Pengesahan SSM dilangkau (7 mata, bukan 10).\n\n⏳ Sedang mengira skor kredit awak...' : '⏭️ SSM verification skipped (7 pts instead of 10).\n\n⏳ Calculating your credit score...');
+            await generateCreditScore(phone, userRef);
+            return;
+        } else if (state === 'await_ssm_cert') {
+            await userRef.update({ state: 'menu' });
+            await sendMessage(phone, lang === 'bm' ? '⏭️ Pengesahan SSM dilangkau.\n\nTaip *MENU* untuk kembali' : '⏭️ SSM verification skipped.\n\nType *MENU* to go back');
+            return;
+        } else if (state === 'await_bank_doc_then_reg') {
+            const cc = getCountry((await userRef.get()).data());
+            await userRef.update({ state: 'credit_q3' });
+            await sendMessage(phone, lang === 'bm' ? `⏭️ Pengesahan bank dilangkau (7 mata, bukan 10).\n\nSoalan 3️⃣: ${cc.reg_question_bm}\n_(Balas: Ya / Tidak)_` : `⏭️ Bank verification skipped (7 pts instead of 10).\n\nQuestion 3️⃣: ${cc.reg_question_en}\n_(Reply: Yes / No)_`);
+            return;
+        } else if (state === 'await_bank_doc_then_score' || state === 'await_bank_doc') {
+            await userRef.update({ state: 'menu' });
+            await sendMessage(phone, lang === 'bm' ? '⏭️ Pengesahan bank dilangkau (7 mata, bukan 10).\n\nTaip *MENU* untuk kembali' : '⏭️ Bank verification skipped (7 pts instead of 10).\n\nType *MENU* to go back');
+            return;
+        } else if (state === 'loan_doc_upload') {
+            await handleDocUpload(phone, null, userRef);
+            return;
+        } else {
+            await sendMessage(phone, lang === 'bm' ? 'Tiada tindakan untuk dilangkau.\n\nTaip *MENU* untuk kembali.' : 'Nothing to skip.\n\nType *MENU* to go back.');
+            return;
+        }
+    }
+
+    // ── Global MENU escape — works from any non-onboarding state (per spec) ──
+    const ONBOARDING_STATES = new Set(['ask_consent', 'ask_consent_loan_choice', 'ask_country', 'ask_country_express', 'ask_state', 'ask_owner_name', 'ask_business_name', 'ask_product', 'ask_revenue']);
+    if (['MENU', 'HI', 'HAI', 'HELLO', 'START'].includes(textUpper) && !ONBOARDING_STATES.has(state)) {
+        await userRef.update({ state: 'menu' });
+        await handleMenu(phone, 'MENU', userRef);
+        return;
+    }
+
+    // ── State machine ──
+    if (state === 'ask_consent_loan_choice') {
+        if (textUpper === '1') {
+            await userRef.update({ consent: true, consent_date: new Date().toISOString(), state: 'ask_country_express' });
+            await sendMessage(phone, lang === 'bm'
+                ? '🌏 *Negara mana awak beroperasi?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Balas dengan nombor_'
+                : '🌏 *Which country do you operate in?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Reply with a number_'
+            );
+        } else if (textUpper === '2') {
+            await userRef.update({ consent: true, consent_date: new Date().toISOString(), state: 'ask_country' });
+            await sendMessage(phone, lang === 'bm'
+                ? '✅ *Terima kasih!*\n\n🌏 *Negara mana awak beroperasi?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Balas dengan nombor_'
+                : '✅ *Thank you!*\n\n🌏 *Which country do you operate in?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Reply with a number_'
+            );
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? 'Sila balas *1* untuk cari pinjaman express atau *2* untuk bina profil kredit penuh.'
+                : 'Please reply *1* for express loan search or *2* to build full credit profile.'
+            );
+        }
+        return;
+    }
+
+    if (state === 'ask_country_express') {
+        const countryMap = { '1': 'MY', '2': 'ID', '3': 'PH' };
+        const code = countryMap[textUpper];
+        if (code) {
+            const name = userData.owner_name || userData.business_name || (lang === 'bm' ? 'Peniaga' : 'there');
+            await userRef.update({ country: code, state: 'express_loan_q1', express_loan_data: {} });
+            await sendMessage(phone, lang === 'bm'
+                ? `🏦 *BizBuddy Loan Agent*\n\nHai! Jom cari pinjaman terbaik untuk awak dalam masa 2 minit!\n\nSoalan 1️⃣: Apa *nama perniagaan* awak?\n_(Taip nama perniagaan awak)_`
+                : `🏦 *BizBuddy Loan Agent*\n\nHi! Let's find your best loan match in 2 minutes!\n\nQuestion 1️⃣: What is your *business name*?\n_(Type your business name)_`
+            );
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? 'Sila pilih 1-3:\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines'
+                : 'Please choose 1-3:\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines'
+            );
+        }
+        return;
+    }
+
+    if (state === 'ask_consent') {
+        if (YES.has(textUpper.toLowerCase())) {
+            await userRef.update({ state: 'ask_country', consent: true, consent_date: new Date().toISOString() });
+            await sendMessage(phone,
+                lang === 'bm'
+                    ? '✅ *Terima kasih!* Data awak dilindungi.\n\n🌏 *Negara mana awak beroperasi?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Balas dengan nombor pilihan_'
+                    : '✅ *Thank you!* Your data is protected.\n\n🌏 *Which country do you operate in?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Reply with your choice number_'
+            );
+        } else {
+            await sendMessage(phone,
+                lang === 'bm'
+                    ? '⚠️ Awak perlu bersetuju untuk menggunakan BizBuddy.\n\nTaip *SETUJU* untuk teruskan\nTaip *ENGLISH* untuk tukar bahasa dahulu'
+                    : '⚠️ You need to agree to use BizBuddy.\n\nType *AGREE* to continue\nType *BM* to switch to Bahasa Malaysia first'
+            );
+        }
+        return;
+    }
+
+    if (state === 'ask_country') {
+        const countryMap = { '1': 'MY', '2': 'ID', '3': 'PH' };
+        const code = countryMap[textUpper];
+        if (code) {
+            const { COUNTRY_CONFIG } = require('../config');
+            const cc = COUNTRY_CONFIG[code];
+            await userRef.update({ country: code, state: 'ask_state' });
+            const stateList = Object.entries(cc.states)
+                .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+                .map(([k, v]) => `${k}️⃣ ${v}`).join('\n');
+            const max = Object.keys(cc.states).length;
+            await sendMessage(phone,
+                lang === 'bm'
+                    ? `${cc.flag} *${cc.name} dipilih!*\n\n📍 *Di negeri/wilayah mana awak beroperasi?*\n\n${stateList}\n\n_Balas dengan nombor (1-${max})_`
+                    : `${cc.flag} *${cc.name} selected!*\n\n📍 *Which state/region do you operate in?*\n\n${stateList}\n\n_Reply with a number (1-${max})_`
+            );
+        } else {
+            await sendMessage(phone,
+                lang === 'bm' ? 'Sila pilih 1-3:\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines' : 'Please choose 1-3:\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines'
+            );
+        }
+        return;
+    }
+
+    if (state === 'ask_state') {
+        const freshData = (await userRef.get()).data();
+        const cc = getCountry(freshData);
+        const stateName = cc.states[textUpper];
+        if (stateName) {
+            await userRef.update({ user_state: stateName, state: 'ask_owner_name' });
+            await sendMessage(phone,
+                lang === 'bm'
+                    ? `📍 *${stateName}* — noted!\n\nMata wang: ${cc.currency}\nProgram pinjaman: ${cc.loan_program}\nPendaftaran: ${cc.registration}\n\nJom mulakan! 🚀\n\nSoalan 1️⃣: Apa *nama awak*?`
+                    : `📍 *${stateName}* — noted!\n\nCurrency: ${cc.currency}\nLoan program: ${cc.loan_program}\nRegistration: ${cc.registration}\n\nLet's get started! 🚀\n\nQuestion 1️⃣: What is your *name*?`
+            );
+        } else {
+            const max = Object.keys(cc.states).length;
+            await sendMessage(phone, lang === 'bm' ? `Sila pilih nombor 1-${max} sahaja.` : `Please choose a number from 1-${max}.`);
+        }
+        return;
+    }
+
+    if (state === 'ask_owner_name') {
+        await userRef.update({ owner_name: text, state: 'ask_business_name' });
+        await sendMessage(phone,
+            lang === 'bm'
+                ? `Hai *${text}*! 😊\n\nSoalan 2️⃣: Apa *nama perniagaan* awak?\n_(Contoh: Kuih Farah, Tudung Siti, Kedai Ahmad)_`
+                : `Hi *${text}*! 😊\n\nQuestion 2️⃣: What is your *business name*?\n_(Example: Farah Kuih, Siti Hijab, Ahmad Store)_`
+        );
+        return;
+    }
+
+    if (state === 'ask_business_name') {
+        await userRef.update({ business_name: text, state: 'ask_product' });
+        await sendMessage(phone,
+            lang === 'bm'
+                ? `*${text}* — nama yang menarik! 🌟\n\nSoalan 3️⃣: Apa yang awak *jual atau tawarkan*?\n_(Contoh: kuih tradisional, tudung, servis gunting rambut)_`
+                : `*${text}* — great name! 🌟\n\nQuestion 3️⃣: What do you *sell or offer*?\n_(Example: traditional kuih, hijab, haircut service)_`
+        );
+        return;
+    }
+
+    if (state === 'ask_product') {
+        let productClean = text;
+        try {
+            const extractPrompt = `Extract ONLY the product or service keywords from this text: "${text}"\nReturn a short comma-separated list of products/services, maximum 5 words total.\nDo NOT include filler words like "kedai saya", "I sell", "my shop is", "yang menjual" etc.\nReturn ONLY the extracted keywords, nothing else.`;
+            const res = await genText(extractPrompt);
+            if (res.length >= 2 && res.length <= 60) productClean = res.replace(/^["']|["']$/g, '');
+        } catch { /* fallback to raw text */ }
+
+        await userRef.update({ product: productClean, state: 'ask_revenue' });
+        const cc = getCountry((await userRef.get()).data());
+        await sendMessage(phone,
+            lang === 'bm'
+                ? `*${productClean}* — menarik! 🛍️\n\nSoalan 4️⃣: Dalam sebulan, lebih kurang berapa *pendapatan* awak?\n_(Contoh: ${cc.income_examples})_`
+                : `*${productClean}* — interesting! 🛍️\n\nQuestion 4️⃣: Roughly how much is your *monthly income*?\n_(Example: ${cc.income_examples})_`
+        );
+        return;
+    }
+
+    if (state === 'ask_revenue') {
+        const d = userData;
+        await userRef.update({ monthly_revenue: text, state: 'menu', registered_date: today() });
+        await sendMessage(phone,
+            lang === 'bm'
+                ? `🎉 *Profil perniagaan awak dah siap, ${d.owner_name}!*\n\n━━━━━━━━━━━━━━━━━━━━\n📋 *PROFIL PERNIAGAAN AWAK*\n━━━━━━━━━━━━━━━━━━━━\n👤 Nama: ${d.owner_name}\n🏪 Perniagaan: ${d.business_name}\n📦 Produk: ${d.product}\n💵 Pendapatan: ${text}/bulan\n📅 Tarikh Daftar: ${today()}\n━━━━━━━━━━━━━━━━━━━━\n\nTaip *MENU* untuk mula rekod jualan awak! 🚀`
+                : `🎉 *Your business profile is ready, ${d.owner_name}!*\n\n━━━━━━━━━━━━━━━━━━━━\n📋 *YOUR BUSINESS PROFILE*\n━━━━━━━━━━━━━━━━━━━━\n👤 Name: ${d.owner_name}\n🏪 Business: ${d.business_name}\n📦 Product: ${d.product}\n💵 Income: ${text}/month\n📅 Registered: ${today()}\n━━━━━━━━━━━━━━━━━━━━\n\nType *MENU* to start recording your sales! 🚀`
+        );
+        return;
+    }
+
+    if (state === 'menu') {
+        const MENU_CMDS = new Set(['1','2','3','4','5','6','7','8','9','MENU','PROFIL','PROFILE','SIJIL','CERTIFICATE','PINJAMAN','LOAN','RESET','DATA','BREAKDOWN','PECAHAN','RUJUK','REFER','KEMASKINI','UPDATE','HAI','HI','HELLO','START','STATUS','PERMOHONAN','APPLICATION']);
+        if (MENU_CMDS.has(textUpper)) {
+            await handleMenu(phone, text, userRef);
+        } else {
+            // Loan intent detection from natural language
+            const lowerText = text.toLowerCase();
+            const hasLoanIntent = LOAN_KEYWORDS.some(kw => lowerText.includes(kw));
+            if (hasLoanIntent) {
+                const name = userData.owner_name || userData.business_name || (lang === 'bm' ? 'Peniaga' : 'there');
+                const existingBizName = userData.business_name;
+                if (existingBizName) {
+                    // Pre-fill from profile, skip Q1
+                    await userRef.update({ state: 'express_loan_q2', express_loan_data: { business_name: existingBizName } });
+                    await sendMessage(phone, lang === 'bm'
+                        ? `🏦 *BizBuddy Loan Agent*\n\nHai ${name}! Jom cari pinjaman terbaik untuk awak!\n\n✅ Perniagaan: *${existingBizName}*\n\nSoalan 2️⃣: Apa *jenis perniagaan* awak?\n\n1️⃣ 🍜 Makanan & Minuman\n2️⃣ 🛍️ Runcit / Perniagaan\n3️⃣ 🚚 Perkhidmatan\n4️⃣ 🏭 Pembuatan\n5️⃣ 📦 Lain-lain\n\n_Balas dengan nombor_`
+                        : `🏦 *BizBuddy Loan Agent*\n\nHi ${name}! Let's find your best loan match!\n\n✅ Business: *${existingBizName}*\n\nQuestion 2️⃣: What *type of business* is it?\n\n1️⃣ 🍜 Food & Beverage\n2️⃣ 🛍️ Retail / Trading\n3️⃣ 🚚 Services\n4️⃣ 🏭 Manufacturing\n5️⃣ 📦 Other\n\n_Reply with a number_`);
+                } else {
+                    await userRef.update({ state: 'express_loan_q1', express_loan_data: {} });
+                    await sendMessage(phone, lang === 'bm'
+                        ? `🏦 *BizBuddy Loan Agent*\n\nHai ${name}! Jom cari pinjaman terbaik untuk awak dalam masa 2 minit!\n\nSoalan 1️⃣: Apa *nama perniagaan* awak?\n_(Taip nama perniagaan awak)_`
+                        : `🏦 *BizBuddy Loan Agent*\n\nHi ${name}! Let's find your best loan match in 2 minutes!\n\nQuestion 1️⃣: What is your *business name*?\n_(Type your business name)_`);
+                }
+                return;
+            }
+            const { smartHandle } = require('./smart');
+            await smartHandle(phone, text, userRef);
+        }
+        return;
+    }
+
+    if (state === 'log_sale') { await handleLogSale(phone, text, userRef); return; }
+    if (state === 'ai_chat') { await handleAiChat(phone, text, userRef); return; }
+    if (state === 'content_menu') { await handleContentMenu(phone, text, userRef); return; }
+    if (state === 'content_generate') { await handleContentGenerate(phone, text, userRef); return; }
+
+    if (state === 'credit_confirm') {
+        if (YES.has(textUpper.toLowerCase())) {
+            await userRef.update({ state: 'menu' });
+            await sendMessage(phone, lang === 'bm' ? '⏳ Sedang mengira skor kredit awak...' : '⏳ Calculating your credit score...');
+            await generateCreditScore(phone, userRef);
+        } else if (NO.has(textUpper.toLowerCase())) {
+            await userRef.update({ state: 'credit_update_bank' });
+            await sendMessage(phone, lang === 'bm' ? '🔄 *Kemaskini Maklumat*\n\nSoalan 1️⃣: Adakah awak ada *akaun bank perniagaan*?\n_(Balas: Ya / Tidak)_' : '🔄 *Update Info*\n\nQuestion 1️⃣: Do you have a *business bank account*?\n_(Reply: Yes / No)_');
+        } else if (textUpper === 'MENU') {
+            await userRef.update({ state: 'menu' });
+            await handleMenu(phone, 'MENU', userRef);
+        } else {
+            await sendMessage(phone, lang === 'bm' ? 'Sila balas *YA* atau *TIDAK*\n\nYA → Jana skor terus\nTIDAK → Kemaskini maklumat\nMENU → Kembali' : 'Please reply *YES* or *NO*\n\nYES → Generate score now\nNO → Update info\nMENU → Go back');
+        }
+        return;
+    }
+
+    if (state === 'credit_update_bank') {
+        const cc = getCountry(userData);
+        if (YES.has(textUpper.toLowerCase())) {
+            await userRef.update({ has_bank_account: 'yes', state: 'await_bank_doc_then_reg' });
+            await sendMessage(phone, lang === 'bm'
+                ? '🏦 *Sahkan Akaun Bank Awak*\n\nHantar screenshot atau gambar:\n• Penyata bank\n• Buku bank (passbook)\n• Online banking\n• E-wallet (TNG, GoPay, dll)\n\n✅ Pastikan *nama pemegang akaun* kelihatan.\n\n📸 *Hantar gambar sekarang*\n\nTaip *LANGKAU* untuk langkau (7 mata, bukan 10)'
+                : '🏦 *Verify Your Bank Account*\n\nSend a screenshot or photo of:\n• Bank statement\n• Passbook\n• Online banking\n• E-wallet (TNG, GoPay, etc)\n\n✅ Make sure *account holder name* is visible.\n\n📸 *Send the image now*\n\nType *SKIP* to skip (7 pts instead of 10)'
+            );
+        } else if (NO.has(textUpper.toLowerCase())) {
+            await userRef.update({ has_bank_account: 'no', state: 'credit_update_reg' });
+            await sendMessage(phone, lang === 'bm' ? `✅ Dikemaskini!\n\nSoalan 2️⃣: ${cc.reg_question_bm}\n_(Balas: Ya / Tidak)_` : `✅ Updated!\n\nQuestion 2️⃣: ${cc.reg_question_en}\n_(Reply: Yes / No)_`);
+        } else {
+            await sendMessage(phone, lang === 'bm' ? '⚠️ Sila balas *Ya* atau *Tidak* sahaja.\n\nSoalan 1️⃣: Adakah awak ada *akaun bank perniagaan*?\n_(Balas: Ya / Tidak)_' : '⚠️ Please reply *Yes* or *No* only.\n\nQuestion 1️⃣: Do you have a *business bank account*?\n_(Reply: Yes / No)_');
+        }
+        return;
+    }
+
+    if (state === 'credit_update_reg') {
+        const cc = getCountry(userData);
+        if (YES.has(textUpper.toLowerCase())) {
+            await userRef.update({ has_ssm: 'yes', state: 'await_ssm_cert_then_score' });
+            await sendMessage(phone, lang === 'bm'
+                ? `✅ Bagus! Awak ada ${cc.registration}.\n\n📄 *Hantar gambar sijil ${cc.registration} awak untuk pengesahan.*\n\nIni membantu meningkatkan skor kredit awak!\n\n✅ Pastikan gambar jelas dan nombor pendaftaran kelihatan.\n\n📸 *Hantar gambar sijil ${cc.registration} sekarang*\n\nTaip *LANGKAU* jika tidak mahu sahkan sekarang`
+                : `✅ Great! You have ${cc.registration}.\n\n📄 *Please send a photo of your ${cc.registration} certificate to verify.*\n\nThis helps boost your credit score!\n\n✅ Make sure the image is clear and registration number is visible.\n\n📸 *Send your ${cc.registration} certificate image now*\n\nType *SKIP* if you don't want to verify now`
+            );
+        } else if (NO.has(textUpper.toLowerCase())) {
+            await userRef.update({ has_ssm: 'no', state: 'menu' });
+            await sendMessage(phone, lang === 'bm' ? '⏳ Sedang mengira skor kredit awak...' : '⏳ Calculating your credit score...');
+            await generateCreditScore(phone, userRef);
+        } else {
+            await sendMessage(phone, lang === 'bm' ? `⚠️ Sila balas *Ya* atau *Tidak* sahaja.\n\n${cc.reg_question_bm}\n_(Balas: Ya / Tidak)_` : `⚠️ Please reply *Yes* or *No* only.\n\n${cc.reg_question_en}\n_(Reply: Yes / No)_`);
+        }
+        return;
+    }
+
+    if (state === 'credit_q1') {
+        await userRef.update({ biz_age: text, state: 'credit_q2' });
+        await sendMessage(phone, lang === 'bm' ? '✅ Noted!\n\nSoalan 2️⃣: Adakah awak ada *akaun bank perniagaan*?\n_(Balas: Ya / Tidak)_' : '✅ Noted!\n\nQuestion 2️⃣: Do you have a *business bank account*?\n_(Reply: Yes / No)_');
+        return;
+    }
+
+    if (state === 'credit_q2') {
+        const cc = getCountry(userData);
+        if (YES.has(textUpper.toLowerCase())) {
+            await userRef.update({ has_bank_account: 'yes', state: 'await_bank_doc_then_reg' });
+            await sendMessage(phone, lang === 'bm'
+                ? '🏦 *Sahkan Akaun Bank Awak*\n\nHantar screenshot atau gambar:\n• Penyata bank\n• Buku bank (passbook)\n• Online banking\n• E-wallet (TNG, GoPay, dll)\n\n✅ Pastikan *nama pemegang akaun* kelihatan.\n\n📸 *Hantar gambar sekarang*\n\nTaip *LANGKAU* untuk langkau (7 mata, bukan 10)'
+                : '🏦 *Verify Your Bank Account*\n\nSend a screenshot or photo of:\n• Bank statement\n• Passbook\n• Online banking\n• E-wallet (TNG, GoPay, etc)\n\n✅ Make sure *account holder name* is visible.\n\n📸 *Send the image now*\n\nType *SKIP* to skip (7 pts instead of 10)'
+            );
+        } else if (NO.has(textUpper.toLowerCase())) {
+            await userRef.update({ has_bank_account: 'no', state: 'credit_q3' });
+            await sendMessage(phone, lang === 'bm' ? `✅ Noted!\n\nSoalan 3️⃣: ${cc.reg_question_bm}\n_(Balas: Ya / Tidak)_` : `✅ Noted!\n\nQuestion 3️⃣: ${cc.reg_question_en}\n_(Reply: Yes / No)_`);
+        } else {
+            await sendMessage(phone, lang === 'bm' ? '⚠️ Sila balas *Ya* atau *Tidak* sahaja.\n\nSoalan 2️⃣: Adakah awak ada *akaun bank perniagaan*?\n_(Balas: Ya / Tidak)_' : '⚠️ Please reply *Yes* or *No* only.\n\nQuestion 2️⃣: Do you have a *business bank account*?\n_(Reply: Yes / No)_');
+        }
+        return;
+    }
+
+    if (state === 'credit_q3') {
+        const cc = getCountry(userData);
+        if (YES.has(textUpper.toLowerCase())) {
+            await userRef.update({ has_ssm: 'yes', state: 'await_ssm_cert_then_score' });
+            await sendMessage(phone, lang === 'bm'
+                ? `✅ Bagus! Awak ada ${cc.registration}.\n\n📄 *Hantar gambar sijil ${cc.registration} awak untuk pengesahan.*\n\nIni membantu meningkatkan skor kredit awak!\n\n📸 *Hantar gambar sijil ${cc.registration} sekarang*\n\nTaip *LANGKAU* jika tidak mahu sahkan sekarang`
+                : `✅ Great! You have ${cc.registration}.\n\n📄 *Please send a photo of your ${cc.registration} certificate to verify.*\n\nThis helps boost your credit score!\n\n📸 *Send your ${cc.registration} certificate image now*\n\nType *SKIP* if you don't want to verify now`
+            );
+        } else if (NO.has(textUpper.toLowerCase())) {
+            await userRef.update({ has_ssm: 'no', state: 'menu' });
+            await sendMessage(phone, lang === 'bm' ? '⏳ Sedang mengira skor kredit awak...' : '⏳ Calculating your credit score...');
+            await generateCreditScore(phone, userRef);
+        } else {
+            await sendMessage(phone, lang === 'bm' ? `⚠️ Sila balas *Ya* atau *Tidak* sahaja.\n\n${cc.reg_question_bm}\n_(Balas: Ya / Tidak)_` : `⚠️ Please reply *Yes* or *No* only.\n\n${cc.reg_question_en}\n_(Reply: Yes / No)_`);
+        }
+        return;
+    }
+
+    // ── Loan Agent state machine ────────────────────────────────────────────
+    if (state === 'express_loan_q1') { await handleExpressQ1(phone, text, userRef); return; }
+    if (state === 'express_loan_q2') { await handleExpressQ2(phone, text, userRef); return; }
+    if (state === 'express_loan_q3') { await handleExpressQ3(phone, text, userRef); return; }
+    if (state === 'express_loan_q4') { await handleExpressQ4(phone, text, userRef); return; }
+    if (state === 'express_loan_q5') { await handleExpressQ5(phone, text, userRef); return; }
+    if (state === 'express_loan_q6') { await handleExpressQ6(phone, text, userRef); return; }
+
+    if (state === 'loan_match_review') { await handleLoanSelection(phone, text, userRef); return; }
+
+    if (state === 'loan_doc_upload') {
+        if (textUpper === 'LANGKAU' || textUpper === 'SKIP') {
+            await handleDocUpload(phone, null, userRef);
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? `📎 Sila hantar *gambar atau dokumen* (penyata bank, resit, dll).\n\nTaip *LANGKAU* untuk hantar permohonan tanpa dokumen buat masa ni.`
+                : `📎 Please send an *image or document* (bank statement, receipt, etc).\n\nType *SKIP* to submit the application without documents for now.`);
+        }
+        return;
+    }
+
+    if (state === 'loan_proactive_review') {
+        if (YES.has(textUpper.toLowerCase())) {
+            await sendMessage(phone, lang === 'bm'
+                ? `⏳ Sedang cari pinjaman terbaik untuk awak...`
+                : `⏳ Finding the best loans for you...`);
+            const fresh = (await userRef.get()).data();
+            const matches = await matchLoans(fresh, lang);
+            if (!matches || matches.length === 0) {
+                await userRef.update({ state: 'menu' });
+                await sendMessage(phone, lang === 'bm'
+                    ? `Tiada pinjaman yang sesuai dijumpai buat masa ni.\nTaip *MENU* untuk kembali.`
+                    : `No matching loans found right now.\nType *MENU* to go back.`);
+            } else {
+                await sendMatches(phone, userRef, matches, fresh.credit_score || 0, lang);
+            }
+        } else {
+            await userRef.update({ state: 'menu' });
+            await handleMenu(phone, 'MENU', userRef);
+        }
+        return;
+    }
+}
+
+module.exports = { handleText };
+
+
+// ============================================================
+// FILE: index.js
+// ============================================================
+
+require('dotenv').config();
+const express = require('express');
+const { handleText } = require('./handlers/text');
+const { handleImage, transcribeAudio } = require('./handlers/image');
+const { db } = require('./db');
+const { sendMessage } = require('./send');
+
+const app = express();
+app.use(express.json());
+app.use(express.static('public'));
+
+const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN;
+const PORT = process.env.PORT || 3000;
+
+// ── Deduplication: remember last 500 msg IDs (in-memory, resets on restart) ──
+const seenMsgIds = new Set();
+const SEEN_MAX = 500;
+function isDuplicate(id) {
+    if (!id) return false;
+    if (seenMsgIds.has(id)) return true;
+    seenMsgIds.add(id);
+    if (seenMsgIds.size > SEEN_MAX) seenMsgIds.delete(seenMsgIds.values().next().value);
+    return false;
+}
+
+// ── Per-phone queue: prevents race conditions from concurrent messages ──
+const phoneQueues = new Map();
+function enqueue(phone, fn) {
+    const prev = phoneQueues.get(phone) || Promise.resolve();
+    const next = prev.then(fn).catch(err => console.error(`[queue error] ${phone}:`, err));
+    phoneQueues.set(phone, next);
+    next.finally(() => { if (phoneQueues.get(phone) === next) phoneQueues.delete(phone); });
+}
+
+app.get('/webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+        console.log('Webhook verified');
+        return res.status(200).send(challenge);
+    }
+    res.sendStatus(403);
+});
+
+app.post('/webhook', (req, res) => {
+    res.sendStatus(200);
+
+    try {
+        const body = req.body;
+        if (body.object !== 'whatsapp_business_account') return;
+
+        const entry = body.entry?.[0];
+        const change = entry?.changes?.[0];
+        const value = change?.value;
+        const messages = value?.messages;
+        if (!messages?.length) return;
+
+        const msg = messages[0];
+        const phone = msg.from;
+        const type = msg.type;
+        const msgId = msg.id;
+
+        if (isDuplicate(msgId)) {
+            console.log(`[DEDUP] skipped ${msgId}`);
+            return;
+        }
+
+        enqueue(phone, async () => {
+            if (type === 'text') {
+                const text = msg.text?.body || '';
+                console.log(`[TEXT] ${phone}: ${text}`);
+                await handleText(phone, text);
+            } else if (type === 'image') {
+                const imageId = msg.image?.id;
+                const caption = msg.image?.caption || '';
+                console.log(`[IMAGE] ${phone}: id=${imageId}`);
+                if (imageId) await handleImage(phone, imageId, caption);
+            } else if (type === 'document') {
+                const docId = msg.document?.id;
+                const caption = msg.document?.caption || '';
+                console.log(`[DOC] ${phone}: id=${docId}`);
+                if (docId) await handleImage(phone, docId, caption);
+            } else if (type === 'audio') {
+                const audioId = msg.audio?.id;
+                console.log(`[AUDIO] ${phone}: id=${audioId}`);
+                if (audioId) await transcribeAudio(phone, audioId);
+            }
+        });
+    } catch (err) {
+        console.error('Webhook handler error:', err);
+    }
+});
+
+// Bank portal → notify user of application status change
+app.post('/notify_user', async (req, res) => {
+    try {
+        const { application_id, status, reviewer_notes } = req.body;
+        if (!application_id || !status) return res.status(400).json({ error: 'Missing application_id or status' });
+        const validStatuses = ['approved', 'rejected', 'needs_info'];
+        if (!validStatuses.includes(status)) return res.status(400).json({ error: `status must be: ${validStatuses.join(' | ')}` });
+
+        const appRef = db.collection('loan_applications').doc(application_id);
+        const appSnap = await appRef.get();
+        if (!appSnap.exists) return res.status(404).json({ error: 'Application not found' });
+
+        const app2 = appSnap.data();
+        const phone = app2.user_phone;
+        const name = app2.user_name || 'there';
+        const bankName = app2.bank_name || 'the bank';
+        const amount = (app2.amount || 0).toLocaleString();
+
+        await appRef.update({ status, reviewer_notes: reviewer_notes || null, reviewed_at: new Date() });
+
+        const userSnap = await db.collection('users').doc(phone).get();
+        const lang = userSnap.exists ? (userSnap.data().language || 'en') : 'en';
+
+        let msg;
+        if (status === 'approved') {
+            msg = lang === 'bm'
+                ? `🎉 *Tahniah ${name}!*\n\nPermohonan pinjaman awak telah *DILULUSKAN*:\n🏦 ${bankName}\n💰 RM${amount}\n📅 Pengeluaran: 3 hari bekerja\n\nPihak bank akan menghubungi awak tidak lama lagi untuk proses akhir. Tahniah sekali lagi! 🚀`
+                : `🎉 *Congratulations ${name}!*\n\nYour loan application has been *APPROVED*:\n🏦 ${bankName}\n💰 RM${amount}\n📅 Disbursement: 3 working days\n\nThe bank will contact you shortly to finalize. Congratulations! 🚀`;
+        } else if (status === 'rejected') {
+            const reason = reviewer_notes || (lang === 'bm' ? 'tidak dinyatakan' : 'not specified');
+            msg = lang === 'bm'
+                ? `Permohonan awak tidak berjaya kali ini. 😔\n\n📝 Sebab: ${reason}\n\nJangan risau — terus rekod jualan untuk tingkatkan skor awak, dan saya akan cari peluang baru untuk awak! 💪\n\nTaip *5* untuk cuba pinjaman lain atau *MENU* untuk kembali.`
+                : `Your application was not approved this time. 😔\n\n📝 Reason: ${reason}\n\nDon't worry — keep recording your sales to improve your score, and I'll find new matches for you! 💪\n\nType *5* to try another loan or *MENU* to go back.`;
+        } else {
+            const note = reviewer_notes || (lang === 'bm' ? 'Sila hubungi bank untuk butiran lanjut.' : 'Please contact the bank for details.');
+            msg = lang === 'bm'
+                ? `📝 *Maklumat Tambahan Diperlukan*\n\nBank memerlukan maklumat tambahan untuk permohonan awak:\n\n${note}\n\nTaip *MENU* untuk kembali.`
+                : `📝 *Additional Information Required*\n\nThe bank needs more information for your application:\n\n${note}\n\nType *MENU* to go back.`;
+        }
+
+        await sendMessage(phone, msg);
+        console.log(`[notify_user] ${application_id} → ${status} → ${phone}`);
+        res.json({ ok: true, phone, status });
+    } catch (err) {
+        console.error('[notify_user error]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Rate limiter: max 5 requests per phone per hour (in-memory) ──
+const rateMap = new Map(); // phone -> [timestamps]
+function rateLimit(phone) {
+    const now = Date.now();
+    const hits = (rateMap.get(phone) || []).filter(t => now - t < 3600000);
+    if (hits.length >= 5) return false;
+    hits.push(now);
+    rateMap.set(phone, hits);
+    return true;
+}
+
+// Range → midpoint converters
+function parseRevenue(range, country) {
+    // range is one of the button values: '<2000','2000-5000','5000-10000','>10000'
+    // For ID multiply by ~1000 (Rp), for PH use peso equivalents
+    const multiplier = country === 'ID' ? 1000 : 1;
+    if (!range) return 5000 * multiplier;
+    if (range.startsWith('>')) return parseInt(range.slice(1)) * 1.5 * multiplier;
+    if (range.startsWith('<')) return parseInt(range.slice(1)) * 0.5 * multiplier;
+    const parts = range.split('-').map(Number);
+    return ((parts[0] + parts[1]) / 2) * multiplier;
+}
+function parseAge(range) {
+    // range: '<6','6-12','12-36','36+'  (months)
+    if (!range) return 12;
+    if (range.startsWith('>') || range.endsWith('+')) return parseInt(range) * 1.5;
+    if (range.startsWith('<')) return parseInt(range.slice(1)) * 0.5;
+    const parts = range.split('-').map(Number);
+    return (parts[0] + parts[1]) / 2;
+}
+function parseLoanAmount(range, country) {
+    const multiplier = country === 'ID' ? 1000 : 1;
+    if (!range) return 30000 * multiplier;
+    if (range.startsWith('>')) return parseInt(range.replace(/[^0-9]/g,'')) * 1.5 * multiplier;
+    if (range.startsWith('<')) return parseInt(range.replace(/[^0-9]/g,'')) * 0.5 * multiplier;
+    const parts = range.split('-').map(s => parseInt(s.replace(/[^0-9]/g,'')));
+    return ((parts[0] + parts[1]) / 2) * multiplier;
+}
+
+app.post('/api/match-loans', async (req, res) => {
+    try {
+        const { name, phone, country = 'MY', loan_amount_range, purpose, monthly_revenue_range, business_age_range, industry } = req.body;
+
+        // Validate
+        if (!name || !phone) return res.status(400).json({ error: 'name and phone required' });
+        const cleanPhone = phone.replace(/\s/g, '').replace(/^\+/, '');
+        if (!/^\d{7,15}$/.test(cleanPhone)) return res.status(400).json({ error: 'Invalid phone number' });
+
+        // Rate limit
+        if (!rateLimit(cleanPhone)) return res.status(429).json({ error: 'Too many requests. Try again in an hour.' });
+
+        // Generate token
+        const token = 'BB-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+
+        // Parse ranges to numbers
+        const monthlyRevNum = parseRevenue(monthly_revenue_range, country);
+        const bizAgeMonths = parseAge(business_age_range);
+        const loanAmountNum = parseLoanAmount(loan_amount_range, country);
+
+        // Build userData shell for matchLoans
+        const userData = {
+            country,
+            provisional_score: 0,
+            credit_score: 0,
+            sales: [],
+            monthly_revenue: String(monthlyRevNum),
+            express_loan_data: {
+                monthly_revenue_num: monthlyRevNum,
+                monthly_revenue_label: monthly_revenue_range || '',
+                biz_age_months: bizAgeMonths,
+                biz_age_label: business_age_range || '',
+                loan_amount_num: loanAmountNum,
+                loan_amount_label: loan_amount_range || '',
+                industry: industry || 'Others',
+                purpose: purpose || 'Working capital',
+            },
+        };
+
+        // Call existing matchLoans
+        const { matchLoans } = require('./features/loan_agent');
+        const matches = await matchLoans(userData, 'en');
+
+        // Compute estimated monthly repayment for each match (simple flat rate)
+        const enrichedMatches = matches.map(m => {
+            const amt = Math.min(loanAmountNum, m.max_amount || loanAmountNum);
+            const tenureMonths = m.tenure_months_max || 60;
+            const monthlyRate = (m.interest_rate || 7) / 100 / 12;
+            const repayment = monthlyRate > 0
+                ? amt * monthlyRate / (1 - Math.pow(1 + monthlyRate, -tenureMonths))
+                : amt / tenureMonths;
+            return {
+                loan_product_id: m.id,
+                bank_name: m.bank_name,
+                product_name: m.product_name,
+                amount: amt,
+                interest_rate: m.interest_rate,
+                match_percentage: m.matchPct,
+                tenure_months_max: tenureMonths,
+                estimated_monthly_repayment: Math.round(repayment * 100) / 100,
+                reasoning: m.reasoning || '',
+                required_docs: m.required_docs || [],
+            };
+        });
+
+        // Save to Firestore landing_signups/{token}
+        const expiresAt = new Date(Date.now() + 48 * 3600 * 1000);
+        await db.collection('landing_signups').doc(token).set({
+            token,
+            name,
+            phone: cleanPhone,
+            country,
+            loan_amount_range,
+            loan_amount_num: loanAmountNum,
+            purpose: purpose || '',
+            monthly_revenue_estimate: monthlyRevNum,
+            business_age_months: bizAgeMonths,
+            industry: industry || 'Others',
+            express_loan_data: userData.express_loan_data,
+            matches: enrichedMatches,
+            selected_loan_id: null,
+            status: 'pending_selection',
+            created_at: new Date(),
+            expires_at: expiresAt,
+        });
+
+        const responseMatches = enrichedMatches.length > 0
+            ? { ok: true, token, matches: enrichedMatches }
+            : { ok: true, token, matches: [], message: "No matches found right now. Try tracking your business to build a stronger profile." };
+
+        res.json(responseMatches);
+    } catch (err) {
+        console.error('[/api/match-loans error]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.patch('/api/match-loans/:token/select', async (req, res) => {
+    try {
+        const { token } = req.params;
+        const { loan_product_id } = req.body;
+        if (!loan_product_id) return res.status(400).json({ error: 'loan_product_id required' });
+
+        const docRef = db.collection('landing_signups').doc(token);
+        const snap = await docRef.get();
+        if (!snap.exists) return res.status(404).json({ error: 'Token not found' });
+
+        const data = snap.data();
+        if (data.expires_at && data.expires_at.toDate() < new Date()) {
+            return res.status(410).json({ error: 'Token expired' });
+        }
+
+        await docRef.update({
+            selected_loan_id: loan_product_id,
+            status: 'awaiting_whatsapp',
+            selected_at: new Date(),
+        });
+
+        const waText = encodeURIComponent(`Apply ${token}`);
+        const waUrl = `https://wa.me/15551483471?text=${waText}`;
+        res.json({ ok: true, wa_url: waUrl });
+    } catch (err) {
+        console.error('[/api/match-loans/:token/select error]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.listen(PORT, () => console.log(`BizBuddy running on port ${PORT}`));
+
+

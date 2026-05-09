@@ -8,484 +8,945 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="BizBuddy"/>
-<title>BizBuddy</title>
+<title>BizBuddy — Financial Identity for ASEAN Entrepreneurs</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="preconnect" href="https://www.gstatic.com"/>
-<link rel="dns-prefetch" href="https://cdn.jsdelivr.net"/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="style.css"/>
+<style>
+/* ── Landing-specific styles ─────────────────────────────── */
+.land-nav {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px;
+  background: rgba(13,17,23,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.land-nav-logo { display: flex; align-items: center; }
+.land-nav-logo img { height: 28px; }
+.land-nav-logo-text {
+  font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800;
+  background: linear-gradient(135deg, #00d4aa, #6c63ff);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.land-nav-links { display: flex; gap: 12px; align-items: center; }
+.land-nav-link {
+  font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600;
+  color: var(--muted); text-decoration: none;
+  padding: 8px 14px; border-radius: 10px;
+  border: 1px solid var(--border);
+  transition: all .2s;
+}
+.land-nav-link:hover { color: var(--text); border-color: var(--accent); }
+.land-nav-link.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff; border-color: transparent;
+}
+.land-nav-link.primary:hover { opacity: .9; }
+
+/* ── Gradient text utilities ── */
+.grad {
+  background: linear-gradient(135deg, #00d4aa, #6c63ff);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.grad-teal {
+  background: linear-gradient(135deg, #00d4aa 0%, #06d6a0 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.grad-purple {
+  background: linear-gradient(135deg, #6c63ff 0%, #a29bfe 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+/* ── Hero ── */
+.hero {
+  text-align: center;
+  padding: 90px 24px 70px;
+  max-width: 820px; margin: 0 auto;
+}
+.hero-tag {
+  display: inline-block;
+  background: rgba(0,212,170,.1); color: var(--accent);
+  font-size: 12px; font-weight: 600; font-family: 'Syne', sans-serif;
+  padding: 5px 16px; border-radius: 20px;
+  border: 1px solid rgba(0,212,170,.25);
+  margin-bottom: 28px; letter-spacing: .05em;
+}
+.hero-headline {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(34px, 6vw, 60px);
+  font-weight: 800; line-height: 1.1;
+  margin-bottom: 24px;
+}
+.hero-sub {
+  font-size: 17px; color: var(--muted); line-height: 1.75;
+  margin-bottom: 0; max-width: 640px; margin-left: auto; margin-right: auto;
+}
+
+/* ── Hero CTA hierarchy ── */
+.hero-ctas {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 36px;
+}
+.btn-primary-hero {
+  background: linear-gradient(135deg, #00d4aa, #06d6a0);
+  color: #0d1117;
+  padding: 14px 28px;
+  border-radius: 12px;
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  text-decoration: none;
+  box-shadow: 0 0 24px rgba(0, 212, 170, 0.4);
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: inline-block;
+}
+.btn-primary-hero:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 32px rgba(0, 212, 170, 0.5);
+}
+.btn-secondary-hero {
+  background: rgba(108, 99, 255, 0.12);
+  border: 1px solid rgba(108, 99, 255, 0.4);
+  color: #a29bfe;
+  padding: 14px 24px;
+  border-radius: 12px;
+  font-family: 'Syne', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  transition: background 0.2s;
+  display: inline-block;
+}
+.btn-secondary-hero:hover { background: rgba(108, 99, 255, 0.22); }
+.btn-tertiary-hero {
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+  padding: 14px 12px;
+  transition: color 0.2s;
+  font-family: 'DM Sans', sans-serif;
+}
+.btn-tertiary-hero:hover { color: var(--text); }
+
+/* ── Old hero-btn kept for CTA modal button ── */
+.hero-btn {
+  font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700;
+  padding: 14px 28px; border-radius: 14px; border: none; cursor: pointer;
+  text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+  transition: all .2s;
+}
+.hero-btn-primary {
+  background: linear-gradient(135deg, #00d4aa, #6c63ff);
+  color: #fff; box-shadow: 0 8px 32px rgba(0,212,170,.25);
+}
+.hero-btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(0,212,170,.35); }
+.hero-btn-sec {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border);
+}
+.hero-btn-sec:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Problem section ── */
+.problem-section {
+  padding: 80px 24px;
+  background: linear-gradient(180deg, transparent 0%, rgba(108, 99, 255, 0.04) 100%);
+}
+.problem-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  text-align: center;
+}
+.problem-pill {
+  display: inline-block;
+  background: rgba(255, 209, 102, 0.1);
+  color: #ffd166;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Syne', sans-serif;
+  margin-bottom: 20px;
+  letter-spacing: 0.05em;
+}
+.problem-headline {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(26px, 4vw, 42px);
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 48px;
+  color: var(--text);
+}
+.problem-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 48px;
+}
+.problem-stat {
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 28px 20px;
+}
+.problem-stat-num {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(30px, 4vw, 44px);
+  font-weight: 800;
+  background: linear-gradient(135deg, #00d4aa 0%, #6c63ff 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  margin-bottom: 8px;
+}
+.problem-stat-label {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.problem-quote {
+  font-style: italic;
+  font-size: 16px;
+  color: var(--muted);
+  max-width: 720px;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+.problem-cite {
+  display: block;
+  margin-top: 12px;
+  font-style: normal;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+/* ── Journey section ── */
+.journey-section { padding: 80px 24px; }
+.journey-container { max-width: 1200px; margin: 0 auto; text-align: center; }
+.journey-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-top: 48px;
+  text-align: left;
+}
+.journey-step {
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  padding: 28px;
+  position: relative;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.journey-step:hover {
+  border-color: rgba(0, 212, 170, 0.3);
+  transform: translateY(-4px);
+}
+.journey-step-num {
+  font-family: 'Syne', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.15em;
+  margin-bottom: 16px;
+}
+.journey-step-icon { font-size: 32px; margin-bottom: 16px; }
+.journey-step h3 {
+  font-family: 'Syne', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.journey-step p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ── Instant match note ── */
+.instant-match-note {
+  max-width: 720px;
+  margin: 24px auto 0;
+  padding: 16px 20px;
+  background: rgba(108, 99, 255, 0.06);
+  border-left: 3px solid #6c63ff;
+  border-radius: 0 12px 12px 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.instant-match-note a {
+  color: #a29bfe;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+/* ── Audiences section ── */
+.audiences-section {
+  padding: 80px 24px;
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 212, 170, 0.04) 100%);
+}
+.audiences-container { max-width: 1200px; margin: 0 auto; text-align: center; }
+.audiences-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-top: 48px;
+  text-align: left;
+}
+.audience-card {
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  padding: 32px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.audience-card:hover {
+  border-color: rgba(0, 212, 170, 0.2);
+  transform: translateY(-2px);
+}
+.audience-icon { font-size: 40px; margin-bottom: 16px; }
+.audience-card h3 {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--text);
+}
+.audience-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0 0 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.audience-benefit {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--accent);
+  margin: 0;
+  font-weight: 500;
+}
+
+/* ── Final CTA ── */
+.final-cta-section {
+  padding: 100px 24px;
+  text-align: center;
+}
+.final-cta-container { max-width: 800px; margin: 0 auto; }
+.final-cta-headline {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(32px, 5vw, 56px);
+  font-weight: 800;
+  line-height: 1.15;
+  margin-bottom: 24px;
+  color: var(--text);
+}
+.final-cta-sub {
+  font-size: 18px;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* ── CTA modal ── */
+.modal-backdrop {
+  display: none; position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+  align-items: center; justify-content: center;
+}
+.modal-backdrop.open { display: flex; }
+.cta-modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 24px; padding: 36px 32px;
+  width: 100%; max-width: 420px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.5);
+}
+.cta-modal h2 {
+  font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800;
+  margin-bottom: 6px;
+}
+.cta-modal p { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.6; }
+.cta-input-group { margin-bottom: 16px; }
+.cta-input-group label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+.cta-input-group input {
+  width: 100%; padding: 12px 14px; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 12px;
+  color: var(--text); font-size: 14px; font-family: 'DM Sans', sans-serif;
+  box-sizing: border-box;
+}
+.cta-input-group input:focus { outline: none; border-color: var(--accent); }
+.cta-submit {
+  width: 100%; padding: 14px;
+  background: linear-gradient(135deg, #00d4aa, #6c63ff);
+  border: none; border-radius: 14px; color: #fff;
+  font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700;
+  cursor: pointer; margin-top: 4px;
+  transition: opacity .2s, transform .2s;
+}
+.cta-submit:hover { opacity: .9; transform: translateY(-1px); }
+.cta-submit:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+.cta-note { font-size: 11px; color: var(--muted); text-align: center; margin-top: 12px; line-height: 1.5; }
+.cta-close {
+  float: right; background: none; border: none;
+  color: var(--muted); font-size: 20px; cursor: pointer; margin-top: -8px;
+}
+
+/* ── Footer ── */
+.land-footer {
+  border-top: 1px solid var(--border);
+  padding: 32px 24px; text-align: center;
+  color: var(--muted); font-size: 12px; line-height: 1.8;
+}
+.land-footer strong { color: var(--text); }
+
+/* ── Scroll animations ── */
+.fade-in { opacity: 0; transform: translateY(20px); transition: opacity .6s ease, transform .6s ease; }
+.fade-in.visible { opacity: 1; transform: none; }
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .journey-steps { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .hero { padding: 60px 20px 48px; }
+  .hero-ctas { flex-direction: column; align-items: stretch; }
+  .btn-primary-hero, .btn-secondary-hero { text-align: center; }
+  .btn-tertiary-hero { text-align: center; }
+  .problem-stats { grid-template-columns: repeat(2, 1fr); }
+  .audiences-grid { grid-template-columns: 1fr; }
+  .land-nav-links .land-nav-link:not(.primary) { display: none; }
+}
+@media (max-width: 600px) {
+  .journey-steps { grid-template-columns: 1fr; }
+}
+</style>
 </head>
 <body>
 
-<!-- INSTALL BANNER -->
-<div id="install-banner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:1000;background:var(--surface,#161b27);border:1px solid rgba(0,212,170,0.3);border-radius:16px;padding:14px 20px;display:none;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.4);min-width:280px;max-width:360px;">
-  <span style="font-size:20px;">📱</span>
-  <span style="font-size:13px;color:#e8edf8;flex:1;">Add BizBuddy to Home Screen</span>
-  <button id="install-btn" style="background:linear-gradient(135deg,#00d4aa,#6c63ff);border:none;border-radius:8px;padding:7px 14px;color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Install</button>
-  <button id="install-dismiss" style="background:transparent;border:none;color:#5a6785;cursor:pointer;font-size:16px;line-height:1;padding:4px;">✕</button>
-</div>
-
-<!-- UPDATE BANNER -->
-<div id="update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:1001;background:linear-gradient(135deg,#00d4aa,#6c63ff);padding:10px 20px;display:none;align-items:center;justify-content:center;gap:12px;">
-  <span style="font-size:13px;color:#fff;font-weight:600;">🆕 New version available</span>
-  <button onclick="location.reload()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);border-radius:6px;padding:5px 14px;color:#fff;font-weight:700;font-size:12px;cursor:pointer;">Refresh</button>
-</div>
-
-<!-- LOADING -->
-<div id="loading">
-  <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;background:linear-gradient(135deg,#00d4aa,#6c63ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">BizBuddy</div>
-  <div class="loader-ring"></div>
-  <div style="font-size:13px;color:#5a6785;">Loading dashboard...</div>
-</div>
-
-<!-- LOGIN -->
-<div id="login-screen" style="display:none;min-height:100vh;display:none;align-items:center;justify-content:center;flex-direction:column;gap:24px;padding:24px;">
-  <div class="login-logo">BizBuddy</div>
-  <div style="text-align:center;color:#5a6785;font-size:14px;">Financial Identity for Every Entrepreneur</div>
-  <div class="login-card">
-    <h2>Access Dashboard</h2>
-    <p>Enter your WhatsApp number to view your financial profile, or use bank view to see portfolio analytics.</p>
-    <div class="view-tabs">
-      <button class="tab-btn active" onclick="selectLoginView('msme')" id="tab-msme">👤 My Dashboard</button>
-      <button class="tab-btn" onclick="selectLoginView('bank')" id="tab-bank">🏦 Bank View</button>
-    </div>
-    <div id="msme-login-section">
-      <div class="input-group">
-        <label>WhatsApp Number (with country code)</label>
-        <input type="tel" id="phone-input" placeholder="e.g. 60123456789" />
-      </div>
-    </div>
-    <div id="bank-login-section" style="display:none;">
-      <div class="input-group">
-        <label>Access Code</label>
-        <input type="password" id="bank-code-input" placeholder="Enter bank access code" />
-      </div>
-      <div style="font-size:11px;color:#5a6785;margin-top:4px;">Demo code: <strong style="color:#00d4aa;">bank2026</strong></div>
-    </div>
-    <button class="btn-primary" onclick="handleLogin()">Access Dashboard -></button>
-    <div id="login-error" style="color:#ff6b6b;font-size:13px;text-align:center;display:none;"></div>
+<!-- NAV -->
+<nav class="land-nav">
+  <div class="land-nav-logo">
+    <a href="/">
+      <img src="icons/horizontal-logo.png" alt="BizBuddy" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"/>
+      <span class="land-nav-logo-text" style="display:none;">BizBuddy</span>
+    </a>
   </div>
-</div>
-
-<!-- APP -->
-<div id="app" style="display:none;">
-  <!-- PULL TO REFRESH INDICATOR -->
-  <div class="pull-indicator" id="pull-indicator">
-    <span class="pull-arrow">↓</span>
+  <div class="land-nav-links">
+    <a href="dashboard.html" class="land-nav-link">👤 MSME Login</a>
+    <a href="bank.html" class="land-nav-link">🏦 Bank Portal</a>
+    <button class="hero-btn hero-btn-primary" onclick="openCTAModal()" style="padding:9px 18px;font-size:13px;border-radius:10px;">Try BizBuddy →</button>
   </div>
+</nav>
 
-  <nav class="topnav">
-    <div class="nav-logo">BizBuddy</div>
-    <div class="nav-right">
-      <div class="view-toggle" id="view-toggle" style="display:none;">
-        <button class="vtbtn active" onclick="switchView('mobile')" id="vt-mobile">📊 My Dashboard</button>
-        <button class="vtbtn" onclick="switchView('desktop')" id="vt-desktop">🏦 Portfolio</button>
-      </div>
-      <div class="user-badge" id="user-badge">Loading...</div>
-      <span id="last-updated" style="font-size:11px;color:var(--muted);"></span>
-      <button class="nav-menu-btn" onclick="openDrawer()" id="nav-menu-btn" title="Menu">☰</button>
-    </div>
-  </nav>
-
-  <!-- NAV DRAWER -->
-  <div class="nav-drawer-overlay" id="nav-drawer-overlay" onclick="closeDrawer()">
-    <div class="nav-drawer" onclick="event.stopPropagation()">
-      <div class="nav-drawer-header">
-        <h3>Settings</h3>
-        <button class="nav-drawer-close" onclick="closeDrawer()">✕</button>
-      </div>
-      <div id="drawer-user-info" style="padding:12px 14px;background:var(--surface2);border-radius:12px;margin-bottom:8px;">
-        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;" id="drawer-user-name">-</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="drawer-user-biz">-</div>
-      </div>
-      <button class="drawer-item" onclick="refreshData();closeDrawer();">
-        <span class="drawer-item-icon">↻</span> <span data-i18n="refresh_data">Refresh Data</span>
-      </button>
-      <button class="drawer-item" onclick="toggleTheme();closeDrawer();">
-        <span class="drawer-item-icon" id="drawer-theme-icon">☀️</span> <span id="drawer-theme-label">Switch to Light</span>
-      </button>
-      <button class="drawer-item" onclick="toggleLang();closeDrawer();" id="drawer-lang-btn">
-        <span class="drawer-item-icon">🌐</span> <span id="drawer-lang-label">Bahasa Melayu</span>
-      </button>
-      <div class="drawer-divider"></div>
-      <button class="drawer-item danger" onclick="logout();closeDrawer();">
-        <span class="drawer-item-icon">⏻</span> <span data-i18n="logout">Logout</span>
-      </button>
-    </div>
+<!-- HERO -->
+<section class="hero fade-in">
+  <div class="hero-tag">🌏 For ASEAN's 70M Invisible Entrepreneurs</div>
+  <h1 class="hero-headline">
+    The <span class="grad-teal">Financial Identity</span> Layer<br/>
+    for ASEAN's <span class="grad-purple">Invisible</span><br/>
+    Entrepreneurs
+  </h1>
+  <p class="hero-sub">97% of ASEAN businesses are MSMEs — yet 65% can't access formal financing because they're invisible to credit systems. BizBuddy's AI agent builds their credit profile, certifies their business, and matches them to financing. All on WhatsApp.</p>
+  <div class="hero-ctas">
+    <a href="https://wa.me/15551483471?text=Hi%20BizBuddy" class="btn-primary-hero">🚀 Build My Profile →</a>
+    <a href="#instant-match" class="btn-secondary-hero" onclick="document.getElementById('instant-match').scrollIntoView({behavior:'smooth'});return false;">⚡ I Need a Loan Now</a>
+    <a href="bank.html" class="btn-tertiary-hero">🏦 For Banks →</a>
   </div>
+</section>
 
-  <!-- MOBILE / MSME VIEW -->
-  <div id="mobile-view">
-    <div class="score-hero fade-up fade-up-1">
-      <div class="score-label" data-i18n="credit_readiness">Credit Readiness Score</div>
-      <div class="score-circle">
-        <svg width="140" height="140" viewBox="0 0 140 140">
-          <circle class="track" cx="70" cy="70" r="58"/>
-          <circle class="fill" id="score-arc" cx="70" cy="70" r="58" stroke-dasharray="364.4" stroke-dashoffset="364.4"/>
-        </svg>
-        <div class="score-number" id="score-num">-</div>
+<!-- THE PROBLEM -->
+<section class="problem-section fade-in">
+  <div class="problem-container">
+    <div class="problem-pill">📊 The Problem</div>
+    <h2 class="problem-headline">
+      ASEAN's economic backbone is <span class="grad-purple">invisible</span> to its banks.
+    </h2>
+    <div class="problem-stats">
+      <div class="problem-stat">
+        <div class="problem-stat-num">97%</div>
+        <div class="problem-stat-label">of ASEAN businesses are MSMEs</div>
       </div>
-      <div class="score-badge" id="score-badge">⏳ Loading...</div>
-      <div class="score-name" id="user-name">-</div>
-      <div class="score-biz" id="user-biz">-</div>
-      <button class="share-btn" id="share-wa-btn" onclick="shareViaWhatsApp()" style="margin-top:16px;max-width:280px;margin-left:auto;margin-right:auto;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.124.558 4.118 1.528 5.845L0 24l6.335-1.508A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.795 9.795 0 01-5.031-1.388l-.361-.214-3.741.981.999-3.648-.235-.374A9.772 9.772 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
-        Share Credit Score via WhatsApp
-      </button>
-    </div>
-
-    <div class="stats-row fade-up fade-up-2">
-      <div class="stat-card">
-        <div class="stat-icon">💰</div>
-        <div class="stat-value" id="stat-revenue">RM-</div>
-        <div class="stat-label" data-i18n="total_revenue">Total Revenue</div>
-        <div class="stat-trend" id="trend-revenue"></div>
+      <div class="problem-stat">
+        <div class="problem-stat-num">85%</div>
+        <div class="problem-stat-label">of regional employment</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">📦</div>
-        <div class="stat-value" id="stat-txn">-</div>
-        <div class="stat-label" data-i18n="transactions">Transactions</div>
-        <div class="stat-trend" id="trend-txn"></div>
+      <div class="problem-stat">
+        <div class="problem-stat-num">~$300B</div>
+        <div class="problem-stat-label">unmet MSME credit gap</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">📈</div>
-        <div class="stat-value" id="stat-avg">RM-</div>
-        <div class="stat-label" data-i18n="avg_per_sale">Avg per Sale</div>
-        <div class="stat-trend" id="trend-avg"></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">🏆</div>
-        <div class="stat-value" id="stat-best">RM-</div>
-        <div class="stat-label" data-i18n="best_sale">Best Sale</div>
-        <div class="stat-trend" id="trend-best"></div>
+      <div class="problem-stat">
+        <div class="problem-stat-num">65%</div>
+        <div class="problem-stat-label">denied formal financing</div>
       </div>
     </div>
+    <p class="problem-quote">
+      "Many traditional businesses remain offline or unbanked, leaving them invisible to global markets and formal credit systems."
+      <span class="problem-cite">— ASEAN Secretariat</span>
+    </p>
+  </div>
+</section>
 
-    <!-- LOAN CTA (visible when score >= 70) -->
-    <div class="loan-cta-card fade-up fade-up-2" id="loan-cta-card">
-      <div class="loan-cta-icon">🎉</div>
-      <div class="loan-cta-title" data-i18n="prequal_title">You're Pre-Qualified!</div>
-      <div class="loan-cta-desc" id="loan-cta-desc" data-i18n="prequal_desc">Your BizBuddy score meets the threshold for micro-loan assessment. Review your details and submit to a partner bank.</div>
-      <button class="loan-cta-btn" onclick="openPrequalModal()" data-i18n="request_assessment">📋 Request Loan Assessment</button>
-    </div>
-
-    <!-- SCORE BREAKDOWN -->
-    <div class="breakdown-card fade-up fade-up-3" id="score-breakdown-card">
-      <div class="section-header">
-        <div class="section-title" data-i18n="score_breakdown">Score Breakdown</div>
-        <div class="section-badge" data-i18n="ai_scored">AI Scored</div>
+<!-- HOW BIZBUDDY WORKS -->
+<section class="journey-section fade-in">
+  <div class="journey-container">
+    <div class="problem-pill" style="background: rgba(0, 212, 170, 0.1); color: #00d4aa;">✨ How It Works</div>
+    <h2 class="problem-headline">
+      From <span class="grad-purple">invisible</span> to <span class="grad-teal">loan-ready</span> in 5 minutes.
+    </h2>
+    <div class="journey-steps">
+      <div class="journey-step">
+        <div class="journey-step-num">01</div>
+        <div class="journey-step-icon">💬</div>
+        <h3>Chat to Onboard</h3>
+        <p>Send 1 WhatsApp message. No app to install. We support voice, photo, and 3 ASEAN languages.</p>
       </div>
-      <div id="breakdown-rows"></div>
-    </div>
-
-    <!-- SCORE HISTORY -->
-    <div class="chart-card fade-up fade-up-3" id="score-history-card" style="display:none;">
-      <div class="section-header">
-        <div class="section-title" data-i18n="score_history">Score History</div>
-        <div class="section-badge" id="score-history-badge">-</div>
+      <div class="journey-step">
+        <div class="journey-step-num">02</div>
+        <div class="journey-step-icon">📊</div>
+        <h3>Build Behavioral Credit</h3>
+        <p>Log sales naturally. Our 6-criteria AI scores you on real business behavior — not credit bureau history.</p>
       </div>
-      <div class="chart-wrap">
-        <canvas id="score-history-chart"></canvas>
+      <div class="journey-step">
+        <div class="journey-step-num">03</div>
+        <div class="journey-step-icon">🛡️</div>
+        <h3>Verify &amp; Certify</h3>
+        <p>Send your SSM cert or bank statement. AI verifies in seconds. Get a portable Credit Certificate.</p>
       </div>
-    </div>
-
-    <div class="chart-card fade-up fade-up-3">
-      <div class="section-header">
-        <div class="section-title" data-i18n="sales_activity">Sales Activity</div>
-        <div class="chart-tabs">
-          <button class="chart-tab active" onclick="switchChartPeriod('7d',this)" id="ct-7d">7 Days</button>
-          <button class="chart-tab" onclick="switchChartPeriod('30d',this)" id="ct-30d">30 Days</button>
-          <button class="chart-tab" onclick="switchChartPeriod('all',this)" id="ct-all">All Time</button>
-        </div>
+      <div class="journey-step">
+        <div class="journey-step-num">04</div>
+        <div class="journey-step-icon">🏦</div>
+        <h3>Match to Financing</h3>
+        <p>Our AI agent matches you to 5+ partner bank loans. Apply in chat. Get notified when approved.</p>
       </div>
-      <div class="chart-wrap">
-        <canvas id="sales-chart"></canvas>
-      </div>
-    </div>
-
-    <div class="roadmap-card fade-up fade-up-4">
-      <div class="section-header">
-        <div class="section-title" data-i18n="loan_roadmap">Loan Readiness Roadmap</div>
-        <div class="section-badge" id="roadmap-pct">0%</div>
-      </div>
-      <div class="roadmap-progress">
-        <div class="roadmap-fill" id="roadmap-bar" style="width:0%"></div>
-      </div>
-      <div id="roadmap-items"></div>
-    </div>
-
-    <div class="fade-up fade-up-5">
-      <div class="section-header">
-        <div class="section-title" data-i18n="recent_sales">Recent Sales</div>
-        <div class="section-badge" id="recent-count">0 records</div>
-      </div>
-      <div class="sales-list" id="sales-list"></div>
-    </div>
-
-    <div class="cert-card fade-up fade-up-5" id="cert-card-el">
-      <div class="cert-shine"></div>
-      <div class="cert-title" data-i18n="credit_cert">⭐ Credit Certificate</div>
-      <div class="cert-score-big" id="cert-score">-</div>
-      <div class="cert-stars" id="cert-stars">-</div>
-      <div class="cert-status" id="cert-status">Generate credit score via WhatsApp to see certificate</div>
-      <div class="cert-id" id="cert-id">NC-XXXX-XXXXXXXX</div>
     </div>
   </div>
+</section>
 
-  <!-- DESKTOP / BANK VIEW -->
-  <div id="desktop-view" style="display:none;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div style="font-family:'Syne',sans-serif;font-size:13px;color:var(--muted);" data-i18n="bank_dashboard">BizBuddy Bank Dashboard</div>
-      <button onclick="exportPDF()" style="background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:10px;padding:9px 18px;color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;">
-        📄 <span data-i18n="export_report">Export Report</span>
-      </button>
+<!-- INSTANT MATCH -->
+<section class="instant-match" id="instant-match">
+  <div class="im-inner">
+    <div class="im-header fade-in">
+      <div class="im-tag">⚡ 60-Second Match</div>
+      <h2 class="im-title">Skip Ahead — Get Matched in 60 Seconds</h2>
+      <p class="im-sub">Already running a business? Tell us about it and we'll match you to loans before you even open WhatsApp.</p>
     </div>
-    <div class="desk-grid fade-up fade-up-1">
-      <div class="desk-stat" style="border-left-color:#6c63ff;">
-        <div class="desk-stat-icon">🏪</div>
-        <div class="desk-stat-val" id="d-total-msme">-</div>
-        <div class="desk-stat-label" data-i18n="total_msmes">Total MSMEs</div>
-        <div class="desk-stat-trend" data-i18n="growing_portfolio">^ Growing portfolio</div>
-      </div>
-      <div class="desk-stat" style="border-left-color:#06d6a0;">
-        <div class="desk-stat-icon">✅</div>
-        <div class="desk-stat-val" style="color:#06d6a0" id="d-loan-ready">-</div>
-        <div class="desk-stat-label" data-i18n="loan_ready_70">Loan Ready (70+)</div>
-        <div class="desk-stat-trend" id="d-loan-pct">- of portfolio</div>
-      </div>
-      <div class="desk-stat" style="border-left-color:#ffd166;">
-        <div class="desk-stat-icon">⭐</div>
-        <div class="desk-stat-val" style="color:#ffd166" id="d-avg-score">-</div>
-        <div class="desk-stat-label" data-i18n="avg_credit_score">Avg Credit Score</div>
-        <div class="desk-stat-trend" data-i18n="portfolio_avg">Portfolio average</div>
-      </div>
-      <div class="desk-stat" style="border-left-color:#00d4aa;">
-        <div class="desk-stat-icon" style="display:flex;align-items:center;justify-content:space-between;">💰
-          <div id="rev-currency-toggle" style="display:flex;gap:4px;">
-            <button onclick="setRevCurrency('RM')" class="rev-cur-btn rev-cur-active" data-cur="RM" style="padding:2px 8px;border-radius:6px;border:1px solid var(--border);background:var(--accent);color:#000;font-size:10px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">RM</button>
-            <button onclick="setRevCurrency('Rp')" class="rev-cur-btn" data-cur="Rp" style="padding:2px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Rp</button>
-            <button onclick="setRevCurrency('₱')" class="rev-cur-btn" data-cur="₱" style="padding:2px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">₱</button>
+
+    <div class="im-form-wrap fade-in">
+      <form id="im-form" onsubmit="submitInstantMatch(event)">
+
+        <div class="im-row">
+          <div class="im-field">
+            <label class="im-label">Your Name</label>
+            <input class="im-input" id="im-name" type="text" placeholder="e.g. Aisyah binti Ali" required />
           </div>
-        </div>
-        <div class="desk-stat-val" id="d-total-rev">RM-</div>
-        <div class="desk-stat-label" data-i18n="total_tracked_rev">Total Tracked Revenue</div>
-        <div class="desk-stat-trend" data-i18n="verified_txn">Verified transactions</div>
-      </div>
-    </div>
-
-    <div class="desk-row fade-up fade-up-2">
-      <div class="desk-card">
-        <h3>🏪 <span data-i18n="msme_portfolio">MSME Portfolio</span></h3>
-        <div class="table-search">
-          <input type="text" id="msme-search" placeholder="🔍 Search by name or business..." oninput="filterTable()"/>
-          <select id="msme-filter" onchange="filterTable()">
-            <option value="all" data-i18n="all_status">All Status</option>
-            <option value="ready">✅ Loan Ready</option>
-            <option value="progress">🔄 In Progress</option>
-            <option value="building">📈 Building</option>
-          </select>
-        </div>
-        <div style="overflow-x:auto;">
-          <table class="msme-table">
-            <thead>
-              <tr>
-                <th data-i18n="th_name">Name</th>
-                <th data-i18n="th_business">Business</th>
-                <th data-i18n="th_country">Country</th>
-                <th data-i18n="th_product">Product</th>
-                <th data-i18n="th_revenue">Revenue</th>
-                <th data-i18n="th_score">Score</th>
-                <th data-i18n="th_status">Status</th>
-              </tr>
-            </thead>
-            <tbody id="msme-table-body"></tbody>
-          </table>
-        </div>
-        <div class="pagination" id="table-pagination">
-          <div class="pagination-info" id="pg-info">Showing 0 of 0</div>
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div class="pg-size">
-              <span>Show</span>
-              <select id="pg-size-select" onchange="changePageSize(this.value)">
-                <option value="10">10</option>
-                <option value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
+          <div class="im-field">
+            <label class="im-label">WhatsApp Number</label>
+            <div class="im-phone-wrap">
+              <select class="im-select" id="im-country" onchange="updateCurrencyLabels()">
+                <option value="MY">🇲🇾 +60</option>
+                <option value="ID">🇮🇩 +62</option>
+                <option value="PH">🇵🇭 +63</option>
               </select>
+              <input class="im-input im-phone" id="im-phone" type="tel" placeholder="123456789" required />
             </div>
-            <div class="pagination-btns" id="pg-btns"></div>
           </div>
         </div>
-      </div>
-      <div class="desk-card">
-        <h3>📊 <span data-i18n="score_dist">Score Distribution</span></h3>
-        <div class="dist-bars" id="dist-bars"></div>
-        <div style="margin-top:24px;">
-          <h3 style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:16px;">🥧 <span data-i18n="portfolio_breakdown">Portfolio Breakdown</span></h3>
-          <div style="height:180px;position:relative;">
-            <canvas id="portfolio-chart"></canvas>
+
+        <div class="im-field">
+          <label class="im-label">Loan Amount Needed</label>
+          <div class="im-btn-group" id="im-amount-group" data-key="loan_amount_range">
+            <button type="button" class="im-opt" data-val="&lt;10000">&#60; <span class="im-cur">RM</span>10K</button>
+            <button type="button" class="im-opt" data-val="10000-50000"><span class="im-cur">RM</span>10K–50K</button>
+            <button type="button" class="im-opt" data-val="50000-200000"><span class="im-cur">RM</span>50K–200K</button>
+            <button type="button" class="im-opt" data-val="&gt;200000">&#62; <span class="im-cur">RM</span>200K</button>
           </div>
         </div>
+
+        <div class="im-row">
+          <div class="im-field">
+            <label class="im-label">Monthly Revenue</label>
+            <div class="im-btn-group" id="im-rev-group" data-key="monthly_revenue_range">
+              <button type="button" class="im-opt" data-val="&lt;2000">&#60; <span class="im-cur">RM</span>2K</button>
+              <button type="button" class="im-opt" data-val="2000-5000"><span class="im-cur">RM</span>2K–5K</button>
+              <button type="button" class="im-opt" data-val="5000-10000"><span class="im-cur">RM</span>5K–10K</button>
+              <button type="button" class="im-opt" data-val="&gt;10000">&#62; <span class="im-cur">RM</span>10K</button>
+            </div>
+          </div>
+          <div class="im-field">
+            <label class="im-label">Business Age</label>
+            <div class="im-btn-group" id="im-age-group" data-key="business_age_range">
+              <button type="button" class="im-opt" data-val="&lt;6">&lt; 6 mo</button>
+              <button type="button" class="im-opt" data-val="6-12">6–12 mo</button>
+              <button type="button" class="im-opt" data-val="12-36">1–3 yr</button>
+              <button type="button" class="im-opt" data-val="36+">3+ yr</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="im-row">
+          <div class="im-field">
+            <label class="im-label">Loan Purpose</label>
+            <div class="im-btn-group" id="im-purpose-group" data-key="purpose">
+              <button type="button" class="im-opt" data-val="Inventory">📦 Inventory</button>
+              <button type="button" class="im-opt" data-val="Equipment">🛠️ Equipment</button>
+              <button type="button" class="im-opt" data-val="Expansion">📈 Expansion</button>
+              <button type="button" class="im-opt" data-val="Working capital">💰 Working Capital</button>
+            </div>
+          </div>
+          <div class="im-field">
+            <label class="im-label">Industry</label>
+            <select class="im-input im-select-full" id="im-industry">
+              <option value="F&amp;B">🍜 Food &amp; Beverage</option>
+              <option value="Fashion">👗 Fashion &amp; Clothing</option>
+              <option value="Agriculture">🌾 Agriculture</option>
+              <option value="Services">🔧 Services</option>
+              <option value="Others">📦 Others</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="im-error" class="im-error" hidden></div>
+
+        <button type="submit" class="im-submit" id="im-submit-btn">
+          <span id="im-submit-text">Find My Best Loans →</span>
+          <span id="im-submit-loading" hidden>🔍 Matching you to partner banks...</span>
+        </button>
+      </form>
+    </div>
+
+    <div id="im-results" class="im-results" hidden>
+      <div class="im-results-header">
+        <div class="im-results-title" id="im-results-title">🎯 We found loans for you</div>
+        <button class="im-results-back" onclick="resetInstantMatch()">← Try Again</button>
+      </div>
+      <div id="im-cards" class="im-cards"></div>
+      <div id="im-no-match" class="im-no-match" hidden>
+        <div style="font-size:48px;margin-bottom:16px;">🤔</div>
+        <div style="font-weight:700;font-size:18px;margin-bottom:8px;">No matches found right now</div>
+        <div style="color:var(--muted);font-size:14px;line-height:1.6;margin-bottom:24px;">Your profile doesn't meet the minimum criteria yet. The good news — you can build up your eligibility by tracking your sales.</div>
+        <button class="hero-btn hero-btn-primary" onclick="openCTAModal()">📊 Track My Business Instead</button>
       </div>
     </div>
 
-    <div class="desk-row fade-up fade-up-3">
-      <div class="desk-card">
-        <h3>📈 <span data-i18n="revenue_trends">Revenue Trends</span></h3>
-        <div style="height:200px;position:relative;">
-          <canvas id="revenue-chart"></canvas>
-        </div>
-      </div>
-      <div class="desk-card">
-        <h3>🎯 <span data-i18n="loan_pipeline">Loan Pipeline</span></h3>
-        <div id="loan-pipeline"></div>
-      </div>
+    <div class="instant-match-note">
+      💡 Want a stronger match? <a href="https://wa.me/15551483471?text=Hi%20BizBuddy">Build your full profile on WhatsApp →</a>
+      Tracking your business sales for 2 weeks raises your credit score and unlocks more loan options.
     </div>
-    <!-- ASEAN MAP -->
-    <div class="map-card fade-up fade-up-4">
-      <h3>🗺️ <span data-i18n="msme_map">MSME Distribution Map - ASEAN</span></h3>
-      <div style="position:relative;">
-        <canvas id="malaysia-map" height="320" style="width:100%;border-radius:12px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;"></canvas>
-        <div class="map-tooltip" id="map-tooltip"></div>
+
+  </div>
+</section>
+
+<!-- BUILT FOR THREE AUDIENCES -->
+<section class="audiences-section fade-in">
+  <div class="audiences-container">
+    <div class="problem-pill" style="background: rgba(108, 99, 255, 0.1); color: #a29bfe;">🎯 Built For</div>
+    <h2 class="problem-headline">
+      One platform. <span class="grad-teal">Three audiences.</span>
+    </h2>
+    <div class="audiences-grid">
+      <div class="audience-card">
+        <div class="audience-icon">👩‍🍳</div>
+        <h3>The Informal Seller</h3>
+        <p class="audience-desc">Aisyah sells nasi lemak at her stall. She has no SSM, no bank statement, and earns RM18k/month — invisible to credit bureaus.</p>
+        <p class="audience-benefit">→ Builds financial identity in 5 mins. Gets matched to her first formal loan.</p>
       </div>
-      <div class="map-legend">
-        <div class="map-legend-item"><div class="map-legend-dot" style="background:#06d6a0"></div><span data-i18n="legend_ready">Loan Ready (70+)</span></div>
-        <div class="map-legend-item"><div class="map-legend-dot" style="background:#ffd166"></div><span data-i18n="legend_progress">In Progress (50-69)</span></div>
-        <div class="map-legend-item"><div class="map-legend-dot" style="background:#ff6b6b"></div><span data-i18n="legend_building">Building (&lt;50)</span></div>
-        <div class="map-legend-item"><div class="map-legend-dot" style="background:#5a6785"></div><span data-i18n="legend_unscored">Unscored</span></div>
+      <div class="audience-card">
+        <div class="audience-icon">🏦</div>
+        <h3>The Loan Officer</h3>
+        <p class="audience-desc">Banks want to lend to MSMEs but can't profitably evaluate thousands of micro-applicants with thin paper trails.</p>
+        <p class="audience-benefit">→ Receives pre-qualified, verified MSMEs with AI risk briefs. Approves with one click.</p>
       </div>
-    </div>
-    <!-- IMPACT METRICS -->
-    <div class="desk-card fade-up fade-up-5" id="impact-metrics-card" style="margin-bottom:24px;">
-      <h3>🌍 <span data-i18n="impact_metrics">Impact Metrics</span></h3>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;" id="impact-stats">
-        <div style="background:var(--surface2);border-radius:16px;padding:20px;text-align:center;border-left:4px solid #06d6a0;">
-          <div style="font-size:28px;margin-bottom:8px;">📈</div>
-          <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--green);" id="impact-onboarded">0</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:4px;" data-i18n="impact_onboarded">MSMEs Onboarded</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:16px;padding:20px;text-align:center;border-left:4px solid #6c63ff;">
-          <div style="font-size:28px;margin-bottom:8px;">🔢</div>
-          <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#6c63ff;" id="impact-txn-total">0</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:4px;" data-i18n="impact_total_txn">Total Transactions Tracked</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:16px;padding:20px;text-align:center;border-left:4px solid #ffd166;">
-          <div style="font-size:28px;margin-bottom:8px;">📋</div>
-          <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--gold);" id="impact-referrals">0</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:4px;" data-i18n="impact_loan_eligible">Loan-Eligible MSMEs</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:16px;padding:20px;text-align:center;border-left:4px solid #00d4aa;">
-          <div style="font-size:28px;margin-bottom:8px;">🌏</div>
-          <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--accent);" id="impact-countries">0</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:4px;" data-i18n="impact_countries">ASEAN Countries Reached</div>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        <div style="background:var(--surface2);border-radius:16px;padding:20px;">
-          <div style="font-size:13px;font-weight:600;margin-bottom:12px;font-family:'Syne',sans-serif;" data-i18n="impact_inclusion">Financial Inclusion Progress</div>
-          <div style="display:flex;flex-direction:column;gap:10px;" id="impact-inclusion-bars"></div>
-        </div>
-        <div style="background:var(--surface2);border-radius:16px;padding:20px;">
-          <div style="font-size:13px;font-weight:600;margin-bottom:12px;font-family:'Syne',sans-serif;" data-i18n="impact_country_breakdown">Country Breakdown</div>
-          <div id="impact-country-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-        </div>
+      <div class="audience-card">
+        <div class="audience-icon">🏛️</div>
+        <h3>The Government Program</h3>
+        <p class="audience-desc">TEKUN, KUR, SB Corp are mandated to lend to underserved MSMEs but struggle to find qualified applicants at scale.</p>
+        <p class="audience-benefit">→ Gets a verified demand pipeline. We turn invisible sellers into bankable customers.</p>
       </div>
     </div>
   </div>
-</div>
+</section>
 
-<!-- MSME DETAIL MODAL -->
-<div class="modal-overlay" id="msme-modal">
-  <div class="modal-box">
-    <button class="modal-close" onclick="closeModal()">✕ Close</button>
-    <div class="modal-header">
-      <div class="avatar" id="modal-avatar" style="width:52px;height:52px;font-size:18px;border-radius:14px;"></div>
-      <div>
-        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;" id="modal-name">-</div>
-        <div style="font-size:13px;color:var(--muted);" id="modal-biz">-</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="modal-product">-</div>
-      </div>
+<!-- FINAL CTA -->
+<section class="final-cta-section fade-in">
+  <div class="final-cta-container">
+    <h2 class="final-cta-headline">
+      Become <span class="grad-teal">visible</span>.<br/>
+      In one WhatsApp message.
+    </h2>
+    <p class="final-cta-sub">
+      70 million ASEAN entrepreneurs are waiting to be seen. Be one of the first.
+    </p>
+    <div class="hero-ctas" style="margin-top: 32px;">
+      <a href="https://wa.me/15551483471?text=Hi%20BizBuddy" class="btn-primary-hero">🚀 Build My Profile Now →</a>
     </div>
-    <div class="modal-stats">
-      <div class="modal-stat">
-        <div class="modal-stat-val" id="modal-score" style="color:var(--accent);">-</div>
-        <div class="modal-stat-label">Credit Score</div>
-      </div>
-      <div class="modal-stat">
-        <div class="modal-stat-val" id="modal-rev">-</div>
-        <div class="modal-stat-label">Total Revenue</div>
-      </div>
-      <div class="modal-stat">
-        <div class="modal-stat-val" id="modal-txn">-</div>
-        <div class="modal-stat-label">Transactions</div>
-      </div>
-      <div class="modal-stat">
-        <div class="modal-stat-val" id="modal-status">-</div>
-        <div class="modal-stat-label">Loan Status</div>
-      </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="land-footer">
+  <div style="margin-bottom:8px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;background:linear-gradient(135deg,#00d4aa,#6c63ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">BizBuddy</div>
+  <div>Financial identity for every ASEAN entrepreneur.</div>
+  <div style="margin-top:8px;opacity:.6;">Built for ASEAN MSMEs · Malaysia · Indonesia · Philippines</div>
+</footer>
+
+<!-- CTA MODAL -->
+<div class="modal-backdrop" id="cta-modal" onclick="closeCTAModal(event)">
+  <div class="cta-modal" onclick="event.stopPropagation()">
+    <button class="cta-close" onclick="closeCTAModal()">✕</button>
+    <div style="font-size:32px;margin-bottom:12px;">🤖</div>
+    <h2>Try BizBuddy</h2>
+    <p>Enter your name and WhatsApp number. We'll connect you directly to BizBuddy on WhatsApp.</p>
+    <div class="cta-input-group">
+      <label>Your Name</label>
+      <input type="text" id="cta-name" placeholder="e.g. Ahmad bin Ali" />
     </div>
-    <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:10px;">Recent Sales</div>
-    <div id="modal-sales"></div>
-    <div id="modal-phone-row" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);font-size:12px;color:var(--muted);"></div>
+    <div class="cta-input-group">
+      <label>WhatsApp Number (with country code)</label>
+      <input type="tel" id="cta-phone" placeholder="e.g. 60123456789" />
+    </div>
+    <button class="cta-submit" id="cta-submit-btn" onclick="submitCTA()">Chat with BizBuddy on WhatsApp →</button>
+    <div class="cta-note" id="cta-status">Your data is saved securely. We'll redirect you to WhatsApp.</div>
   </div>
 </div>
 
-<!-- PRE-QUALIFICATION MODAL -->
-<div class="modal-overlay" id="prequal-modal">
-  <div class="modal-box" style="max-width:440px;">
-    <button class="modal-close" onclick="closePrequalModal()">✕ Close</button>
-    <div style="text-align:center;margin-bottom:8px;">
-      <div style="font-size:40px;margin-bottom:8px;">🏦</div>
-      <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--green);" data-i18n="prequal_modal_title">Loan Pre-Qualification</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px;" data-i18n="prequal_modal_sub">Review your details before submitting to the bank</div>
-    </div>
-    <div class="prequal-summary">
-      <div class="prequal-item">
-        <div class="prequal-item-val" id="pq-score" style="color:var(--green);">-</div>
-        <div class="prequal-item-label" data-i18n="credit_score_label">Credit Score</div>
-      </div>
-      <div class="prequal-item">
-        <div class="prequal-item-val" id="pq-revenue">-</div>
-        <div class="prequal-item-label" data-i18n="total_revenue">Total Revenue</div>
-      </div>
-      <div class="prequal-item">
-        <div class="prequal-item-val" id="pq-txn">-</div>
-        <div class="prequal-item-label" data-i18n="transactions">Transactions</div>
-      </div>
-      <div class="prequal-item">
-        <div class="prequal-item-val" id="pq-verified">-</div>
-        <div class="prequal-item-label" data-i18n="verified_sales">Verified Sales</div>
-      </div>
-    </div>
-    <div class="prequal-divider"></div>
-    <div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:4px;">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;" data-i18n="sharing_with_bank">You'll be sharing:</div>
-      <div style="font-size:12px;line-height:1.8;">
-        ✅ <span data-i18n="pq_item1">Business name & owner name</span><br>
-        ✅ <span data-i18n="pq_item2">Credit score & breakdown</span><br>
-        ✅ <span data-i18n="pq_item3">Revenue history & verification rate</span><br>
-        ✅ <span data-i18n="pq_item4">BizBuddy certificate ID</span>
-      </div>
-    </div>
-    <button class="prequal-wa-btn" id="pq-wa-btn" onclick="submitPrequal()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.124.558 4.118 1.528 5.845L0 24l6.335-1.508A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.795 9.795 0 01-5.031-1.388l-.361-.214-3.741.981.999-3.648-.235-.374A9.772 9.772 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
-      <span data-i18n="send_to_bank">Send to Partner Bank via WhatsApp</span>
-    </button>
-    <div class="prequal-note" data-i18n="pq_note">Your data is protected under PDPA Malaysia. The bank will contact you within 2-3 business days.</div>
-  </div>
-</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-<script type="module" src="app.js"></script>
-<script>
-// Register Service Worker for offline support
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('SW registered:', reg.scope))
-      .catch(err => console.log('SW registration failed:', err));
+const firebaseConfig = {
+  apiKey: "AIzaSyBCKEixrTah-fLAkflpb3aJJ6faU93gAiQ",
+  authDomain: "donahack.firebaseapp.com",
+  projectId: "donahack",
+  storageBucket: "donahack.firebasestorage.app",
+  messagingSenderId: "1004439535740",
+  appId: "1:1004439535740:web:8a23ce54f2a1eec29549f9"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+
+const BOT_NUMBER = "15551483471";
+
+window.submitCTA = async () => {
+  const name = document.getElementById('cta-name').value.trim();
+  const phone = document.getElementById('cta-phone').value.trim().replace(/\s/g,'');
+  const btn = document.getElementById('cta-submit-btn');
+  const status = document.getElementById('cta-status');
+
+  if (!name) { status.textContent = '⚠️ Please enter your name.'; status.style.color = '#ff6b6b'; return; }
+  if (!phone) { status.textContent = '⚠️ Please enter your WhatsApp number.'; status.style.color = '#ff6b6b'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  status.textContent = 'Connecting you to BizBuddy...';
+  status.style.color = '';
+
+  try {
+    await addDoc(collection(db, 'landing_signups'), {
+      name,
+      phone,
+      timestamp: serverTimestamp(),
+      source: 'landing_cta'
+    });
+  } catch(e) {
+    console.warn('Firestore save failed:', e);
+  }
+
+  const greeting = encodeURIComponent(`Hi BizBuddy, I'm ${name}`);
+  window.open(`https://wa.me/${BOT_NUMBER}?text=${greeting}`, '_blank');
+  btn.disabled = false;
+  btn.textContent = 'Chat with BizBuddy on WhatsApp →';
+  status.textContent = '✅ Redirected! Check your WhatsApp.';
+  status.style.color = '#00d4aa';
+};
+
+// ── Instant Match ──────────────────────────────────────────────────────────
+
+const CURRENCY = { MY: 'RM', ID: 'Rp', PH: '₱' };
+const COUNTRY_PREFIX = { MY: '60', ID: '62', PH: '63' };
+
+window.updateCurrencyLabels = () => {
+  const country = document.getElementById('im-country').value;
+  const cur = CURRENCY[country] || 'RM';
+  document.querySelectorAll('.im-cur').forEach(el => el.textContent = cur);
+};
+
+// Button group selection
+document.querySelectorAll('.im-btn-group').forEach(group => {
+  group.addEventListener('click', e => {
+    const btn = e.target.closest('.im-opt');
+    if (!btn) return;
+    group.querySelectorAll('.im-opt').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
   });
+});
+
+function getGroupVal(groupId) {
+  const sel = document.querySelector(`#${groupId} .im-opt.selected`);
+  return sel ? sel.dataset.val : null;
+}
+
+window.submitInstantMatch = async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('im-name').value.trim();
+  const country = document.getElementById('im-country').value;
+  const prefix = COUNTRY_PREFIX[country] || '60';
+  const rawPhone = document.getElementById('im-phone').value.trim().replace(/^0+/, '');
+  const phone = prefix + rawPhone;
+  const loanAmountRange = getGroupVal('im-amount-group');
+  const monthlyRevenueRange = getGroupVal('im-rev-group');
+  const businessAgeRange = getGroupVal('im-age-group');
+  const purpose = getGroupVal('im-purpose-group');
+  const industry = document.getElementById('im-industry').value;
+
+  const errEl = document.getElementById('im-error');
+  errEl.hidden = true;
+
+  if (!name) { errEl.textContent = '⚠️ Please enter your name.'; errEl.hidden = false; return; }
+  if (!rawPhone || rawPhone.length < 7) { errEl.textContent = '⚠️ Please enter a valid phone number.'; errEl.hidden = false; return; }
+  if (!loanAmountRange) { errEl.textContent = '⚠️ Please select loan amount.'; errEl.hidden = false; return; }
+  if (!monthlyRevenueRange) { errEl.textContent = '⚠️ Please select monthly revenue.'; errEl.hidden = false; return; }
+  if (!businessAgeRange) { errEl.textContent = '⚠️ Please select business age.'; errEl.hidden = false; return; }
+  if (!purpose) { errEl.textContent = '⚠️ Please select loan purpose.'; errEl.hidden = false; return; }
+
+  const submitBtn = document.getElementById('im-submit-btn');
+  const submitText = document.getElementById('im-submit-text');
+  const submitLoading = document.getElementById('im-submit-loading');
+  submitBtn.disabled = true;
+  submitText.hidden = true;
+  submitLoading.hidden = false;
+
+  try {
+    const resp = await fetch('/api/match-loans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, country, loan_amount_range: loanAmountRange, purpose, monthly_revenue_range: monthlyRevenueRange, business_age_range: businessAgeRange, industry }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Server error');
+
+    renderMatchResults(data, country);
+  } catch (err) {
+    errEl.textContent = '⚠️ ' + (err.message || 'Something went wrong. Please try again.');
+    errEl.hidden = false;
+  } finally {
+    submitBtn.disabled = false;
+    submitText.hidden = false;
+    submitLoading.hidden = true;
+  }
+};
+
+const MEDALS = ['🥇', '🥈', '🥉'];
+const RANK_LABELS = ['Best Match', '2nd Choice', '3rd Choice'];
+const MEDAL_CLASSES = ['gold', 'silver', 'bronze'];
+
+function renderMatchResults(data, country) {
+  const resultsEl = document.getElementById('im-results');
+  const cardsEl = document.getElementById('im-cards');
+  const noMatchEl = document.getElementById('im-no-match');
+  const titleEl = document.getElementById('im-results-title');
+  const cur = CURRENCY[country] || 'RM';
+
+  cardsEl.innerHTML = '';
+  noMatchEl.hidden = true;
+
+  if (!data.matches || data.matches.length === 0) {
+    titleEl.textContent = '😔 No matches found';
+    noMatchEl.hidden = false;
+  } else {
+    titleEl.textContent = `🎯 We found ${data.matches.length} loan${data.matches.length > 1 ? 's' : ''} for you`;
+    data.matches.forEach((m, i) => {
+      const card = document.createElement('div');
+      card.className = `im-card im-card-${MEDAL_CLASSES[i] || 'bronze'} fade-in`;
+      card.innerHTML = `
+        <div class="im-card-rank">${MEDALS[i]} ${RANK_LABELS[i]} &nbsp; <span class="im-match-pct">${m.match_percentage}% match</span></div>
+        <div class="im-card-bank">${m.bank_name}</div>
+        <div class="im-card-product">${m.product_name}</div>
+        <div class="im-card-meta">
+          <span>💰 ${cur}${(m.amount || 0).toLocaleString()}</span>
+          <span>📈 ${m.interest_rate}% p.a.</span>
+          ${m.tenure_months_max ? `<span>📅 Up to ${Math.round(m.tenure_months_max/12)} yrs</span>` : ''}
+          ${m.estimated_monthly_repayment ? `<span>💸 ~${cur}${m.estimated_monthly_repayment.toLocaleString()}/mo</span>` : ''}
+        </div>
+        ${m.reasoning ? `<div class="im-card-reason">✅ ${m.reasoning}</div>` : ''}
+        <button class="im-apply-btn" onclick="applyLoan('${data.token}', '${m.loan_product_id}', this)">Apply on WhatsApp →</button>
+      `;
+      card.style.animationDelay = `${i * 0.1}s`;
+      cardsEl.appendChild(card);
+      setTimeout(() => card.classList.add('visible'), 50 + i * 100);
+    });
+  }
+
+  document.getElementById('im-form').closest('.im-form-wrap').hidden = true;
+  resultsEl.hidden = false;
+  resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+window.applyLoan = async (token, loanProductId, btn) => {
+  btn.disabled = true;
+  btn.textContent = 'Opening WhatsApp...';
+  try {
+    const resp = await fetch(`/api/match-loans/${token}/select`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loan_product_id: loanProductId }),
+    });
+    const data = await resp.json();
+    if (data.ok && data.wa_url) {
+      window.open(data.wa_url, '_blank');
+    } else {
+      throw new Error(data.error || 'Failed');
+    }
+  } catch (err) {
+    btn.textContent = 'Apply on WhatsApp →';
+    btn.disabled = false;
+    alert('Could not open WhatsApp: ' + err.message);
+  }
+};
+
+window.resetInstantMatch = () => {
+  document.getElementById('im-results').hidden = true;
+  document.getElementById('im-form').closest('.im-form-wrap').hidden = false;
+  document.getElementById('instant-match').scrollIntoView({ behavior: 'smooth' });
+};
+</script>
+
+<script>
+window.openCTAModal = () => {
+  document.getElementById('cta-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+};
+window.closeCTAModal = (e) => {
+  if (!e || e.target === document.getElementById('cta-modal') || !e.target) {
+    document.getElementById('cta-modal').classList.remove('open');
+    document.body.style.overflow = '';
+    const status = document.getElementById('cta-status');
+    status.textContent = 'Your data is saved securely. We\'ll redirect you to WhatsApp.';
+    status.style.color = '';
+  }
+};
+
+// Theme persistence
+if (localStorage.getItem('nc-theme') === 'light') document.body.classList.add('light-mode');
+
+// Scroll fade-in
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => { if(e.isIntersecting) e.target.classList.add('visible'); });
+}, { threshold: 0.1 });
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+// Service worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 }
 </script>
 </body>

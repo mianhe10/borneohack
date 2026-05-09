@@ -1,4 +1,4 @@
-import { getFirestore, collection, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, getDoc, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 
 // -- PWA INSTALL PROMPT --
@@ -55,6 +55,36 @@ const firebaseConfig = {
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
 
+// ── BOT CONFIG (update BOT_PHONE to match your WhatsApp Business number) ──────
+const BOT_PHONE = '15551483471';
+const WA_LINKS = {
+  verify:    () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent('verify')}`,
+  loanMatch: () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent(t('loan_wa_msg'))}`,
+  logSale:   () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent('Hi BizBuddy! I want to log my first sale')}`,
+};
+
+// ── CLIENT-SIDE PARSE HELPERS (mirror credit.js) ─────────────────────────────
+function parseMonthlyRevenue(str) {
+    if (!str) return 0;
+    const s = String(str).toLowerCase().replace(/,/g, '');
+    const rangeMatch = s.match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
+    if (rangeMatch) return (parseFloat(rangeMatch[1]) + parseFloat(rangeMatch[2])) / 2;
+    const kMatch = s.match(/(\d+(?:\.\d+)?)k/);
+    if (kMatch) return parseFloat(kMatch[1]) * 1000;
+    const plain = s.match(/(\d+(?:\.\d+)?)/);
+    return plain ? parseFloat(plain[1]) : 0;
+}
+function parseBizAgeMonths(str) {
+    if (!str) return 0;
+    const s = String(str).toLowerCase();
+    const numMatch = s.match(/(\d+(?:\.\d+)?)/);
+    const num = numMatch ? parseFloat(numMatch[1]) : 0;
+    if (!num) return 0;
+    if (s.includes('year') || s.includes('tahun')) return Math.round(num * 12);
+    if (s.includes('month') || s.includes('bulan')) return Math.round(num);
+    return Math.round(num * 12);
+}
+
 // -- XSS SANITIZATION --
 function esc(str) {
   if (str === null || str === undefined) return '-';
@@ -67,6 +97,8 @@ let currentView = 'mobile';
 let currentUser = null;
 let allUsers = [];
 let salesChartInstance = null;
+let _salesPage = 0;
+const SALES_PER_PAGE = 6;
 let portfolioChartInstance = null;
 let revenueChartInstance = null;
 let scoreHistoryChartInstance = null;
@@ -82,19 +114,50 @@ window.addEventListener('load', async () => {
   showLoginScreen();
 });
 
+// -- PAGE DETECTION --
+const IS_BANK_PAGE = window.__BANK_PAGE__ === true;
+
 // -- LOGIN --
 window.selectLoginView = (v) => {
-  document.getElementById('tab-msme').classList.toggle('active', v==='msme');
-  document.getElementById('tab-bank').classList.toggle('active', v==='bank');
-  document.getElementById('msme-login-section').style.display = v==='msme'?'block':'none';
-  document.getElementById('bank-login-section').style.display = v==='bank'?'block':'none';
+  const tabMsme = document.getElementById('tab-msme');
+  const tabBank = document.getElementById('tab-bank');
+  if(tabMsme) tabMsme.classList.toggle('active', v==='msme');
+  if(tabBank) tabBank.classList.toggle('active', v==='bank');
+  const msmeSection = document.getElementById('msme-login-section');
+  const bankSection = document.getElementById('bank-login-section');
+  if(msmeSection) msmeSection.style.display = v==='msme'?'block':'none';
+  if(bankSection) bankSection.style.display = v==='bank'?'block':'none';
+};
+
+// Bank page standalone login
+window.handleBankLogin = async () => {
+  const err = document.getElementById('login-error');
+  if(err) err.style.display = 'none';
+  const loginBtn = document.querySelector('.login-card .btn-primary');
+  const code = document.getElementById('bank-code-input')?.value.trim();
+  if (code !== 'bank2026') {
+    if(err){ err.textContent = 'Invalid access code'; err.style.display = 'block'; }
+    return;
+  }
+  if(loginBtn){ loginBtn.classList.add('btn-loading'); loginBtn.textContent = 'Connecting...'; }
+  showApp('bank');
+  loadBankView();
+  if(loginBtn){ loginBtn.classList.remove('btn-loading'); loginBtn.textContent = 'Access Bank Portal ->'; }
+};
+
+window.bankLogout = () => {
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  const inp = document.getElementById('bank-code-input');
+  if(inp) inp.value = '';
 };
 
 window.handleLogin = async () => {
   const err = document.getElementById('login-error');
-  err.style.display = 'none';
+  if(err) err.style.display = 'none';
   const loginBtn = document.querySelector('.login-card .btn-primary');
-  const isMsme = document.getElementById('tab-msme').classList.contains('active');
+  const tabMsme = document.getElementById('tab-msme');
+  const isMsme = !tabMsme || tabMsme.classList.contains('active');
 
   // Loading state
   loginBtn.classList.add('btn-loading');
@@ -129,33 +192,35 @@ function showError(msg) {
 function showApp(view) {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  const viewToggle = document.getElementById('view-toggle');
+  if(viewToggle) viewToggle.style.display = 'none';
   if (view === 'bank') {
-    document.getElementById('view-toggle').style.display = 'none';
-    // Set drawer info for bank
     const dn = document.getElementById('drawer-user-name');
     const db2 = document.getElementById('drawer-user-biz');
     if(dn) dn.textContent = 'Bank Portal';
     if(db2) db2.textContent = 'Portfolio Management';
     switchView('desktop');
   } else {
-    document.getElementById('view-toggle').style.display = 'none';
     switchView('mobile');
   }
 }
 
 window.switchView = (v) => {
   currentView = v;
-  document.getElementById('vt-mobile').classList.toggle('active', v==='mobile');
-  document.getElementById('vt-desktop').classList.toggle('active', v==='desktop');
-  document.getElementById('mobile-view').style.display = v==='mobile'?'flex':'none';
-  document.getElementById('desktop-view').style.display = v==='desktop'?'block':'none';
+  document.getElementById('vt-mobile')?.classList.toggle('active', v==='mobile');
+  document.getElementById('vt-desktop')?.classList.toggle('active', v==='desktop');
+  const mv = document.getElementById('mobile-view');
+  const dv = document.getElementById('desktop-view');
+  if(mv) mv.style.display = v==='mobile'?'flex':'none';
+  if(dv) dv.style.display = v==='desktop'?'block':'none';
 };
 
 window.logout = () => {
   currentUser = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('phone-input').value = '';
+  const phoneInp = document.getElementById('phone-input');
+  if(phoneInp) phoneInp.value = '';
 };
 
 window.refreshData = async () => {
@@ -261,9 +326,8 @@ function animateCount(id, from, to, duration, prefix, suffix) {
   requestAnimationFrame(update);
 }
 
-function loadMobileView(user) {
+async function loadMobileView(user) {
   document.getElementById('user-badge').textContent = user.owner_name || user.business_name || 'User';
-  // Update drawer user info
   const dn = document.getElementById('drawer-user-name');
   const db2 = document.getElementById('drawer-user-biz');
   if(dn) dn.textContent = user.owner_name || 'User';
@@ -276,20 +340,9 @@ function loadMobileView(user) {
   const best = count > 0 ? Math.max(...sales.map(s=>s.amount||0)) : 0;
   const score = user.credit_score || 0;
 
-  // -- EMPTY STATE: check if new user --
-  const isNewUser = count === 0 && score === 0;
-  const mobileView = document.getElementById('mobile-view');
-
-  // Reorder: promote roadmap above chart for new users
-  const roadmapCard = document.querySelector('.roadmap-card');
-  const chartCard = document.querySelector('.chart-card');
-  if (isNewUser && roadmapCard && chartCard) {
-    chartCard.parentNode.insertBefore(roadmapCard, chartCard);
-  }
-
   // Score arc - animated
   const arc = document.getElementById('score-arc');
-  const circumference = 364.4;
+  const circumference = 427.3; // 2 * π * 68 (160px SVG, r=68)
   const offset = circumference - (score/100) * circumference;
   arc.style.strokeDashoffset = circumference;
   document.getElementById('score-num').textContent = '0';
@@ -325,32 +378,36 @@ function loadMobileView(user) {
   if (best > 0) animateCount('stat-best', 0, best, 1000, cur, '');
   else document.getElementById('stat-best').textContent = cur + '0';
 
-  // Chart
+  // Sync sections
   buildSalesChart(sales);
-
-  // NEW: Score Breakdown
   buildScoreBreakdown(user, sales);
-
-  // NEW: Loan CTA
-  updateLoanCTA(user, sales);
-
-  // NEW: Growth Trends
   buildGrowthTrends(sales);
-
-  // Roadmap
   buildRoadmap(user, sales);
-
-  // Recent sales
-  buildSalesList(sales);
-
-  // Certificate
+  _salesPage = 0;
+  renderRecentSales(sales, 0);
   buildCertificate(user, score);
-
-  // Score History
   buildScoreHistory(user);
+  buildVerificationStatus(user);
+  buildLoanAgentCTA(user);
 
   // Apply translations
   applyTranslations();
+
+  // Async sections: load in parallel
+  try {
+    const [programs, apps] = await Promise.all([
+      loadLoanPrograms(user),
+      loadMyApplications(user.phone),
+    ]);
+    buildLoanCards(programs, user);
+    buildApplicationsList(apps, cur);
+  } catch(e) {
+    console.error('[loadMobileView async]', e);
+    const loanList = document.getElementById('loan-rec-list');
+    if (loanList) loanList.innerHTML = '<div class="loan-empty">Could not load loan programs.</div>';
+    const appList = document.getElementById('applications-list');
+    if (appList) appList.innerHTML = '';
+  }
 }
 
 let currentMobileSales = [];
@@ -450,32 +507,49 @@ function buildRoadmap(user, sales) {
   `).join('');
 }
 
-function buildSalesList(sales) {
-  const recent = [...sales].reverse().slice(0, 8);
-  document.getElementById('recent-count').textContent = sales.length + ' records';
-  if (recent.length === 0) {
-    document.getElementById('sales-list').innerHTML = `
-      <div class="empty-hero">
+function renderRecentSales(sales, page = 0) {
+  const sorted = [...sales].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const totalPages = Math.ceil(sorted.length / SALES_PER_PAGE);
+  const pageSales = sorted.slice(page * SALES_PER_PAGE, (page + 1) * SALES_PER_PAGE);
+  const cur = getCur(currentUser);
+
+  document.getElementById('recent-count').textContent = t('records_count', { n: sales.length });
+
+  const listHtml = pageSales.length === 0
+    ? `<div class="empty-hero">
         <div class="empty-hero-icon">🚀</div>
         <h3>${t('empty_title')}</h3>
         <p>${t('empty_desc')}</p>
-        <a href="https://wa.me/15556648532?text=Hi%20BizBuddy!%20I%20want%20to%20log%20my%20first%20sale" target="_blank" class="empty-hero-cta">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.124.558 4.118 1.528 5.845L0 24l6.335-1.508A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.795 9.795 0 01-5.031-1.388l-.361-.214-3.741.981.999-3.648-.235-.374A9.772 9.772 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
+        <a href="${WA_LINKS.logSale()}" target="_blank" class="empty-hero-cta">
           ${t('empty_cta')}
         </a>
+      </div>`
+    : `<div class="recent-sales-list">${pageSales.map(s => `
+        <div class="sale-row">
+          <div class="sale-row-left">
+            <span class="sale-item-name">${esc(s.item || 'Sale')}</span>
+            <span class="sale-date">${esc(s.date || '')} ${s.source === 'screenshot' ? '📸' : '💬'}</span>
+          </div>
+          <span class="sale-amount">${cur}${(s.amount || 0).toLocaleString()}</span>
+        </div>`).join('')}
       </div>`;
-    return;
-  }
-  document.getElementById('sales-list').innerHTML = recent.map(s => `
-    <div class="sale-item">
-      <div class="sale-left">
-        <div class="sale-item-name">${esc(s.item || 'Sale')}</div>
-        <div class="sale-date">${esc(s.date)} ${s.source === 'screenshot' ? '📸' : '💬'}</div>
-      </div>
-      <div class="sale-amount">${getCur(currentUser)}${(s.amount||0).toLocaleString()}</div>
-    </div>
-  `).join('');
+
+  const paginationHtml = totalPages > 1
+    ? `<div class="sales-pagination">
+        <button class="sales-page-btn" onclick="window.changeSalesPage(${page - 1})" ${page === 0 ? 'disabled' : ''}>${t('prev_page')}</button>
+        <span class="sales-page-indicator">${page + 1} / ${totalPages}</span>
+        <button class="sales-page-btn" onclick="window.changeSalesPage(${page + 1})" ${page >= totalPages - 1 ? 'disabled' : ''}>${t('next_page')}</button>
+      </div>`
+    : '';
+
+  const container = document.getElementById('recent-sales-container');
+  if (container) container.innerHTML = listHtml + paginationHtml;
 }
+
+window.changeSalesPage = function(newPage) {
+  _salesPage = newPage;
+  renderRecentSales(currentUser?.sales || [], _salesPage);
+};
 
 function buildCertificate(user, score) {
   document.getElementById('cert-score').textContent = score > 0 ? score + '/100' : '-';
@@ -600,6 +674,12 @@ const translations = {
     legend_building: 'Building (<50)',
     legend_unscored: 'Unscored',
     score_history: 'Score History',
+    availableLoans: 'Available Loan Programs',
+    verificationStatus: 'Verification Status',
+    loanAgentTitle: 'Need a loan?',
+    loanAgentDesc: 'Our AI agent matches you to the best-fit loan from 5+ partner banks in 2 minutes.',
+    loanAgentBtn: 'Start Loan Match →',
+    myApplications: 'My Applications',
     impact_metrics: 'Impact Metrics',
     impact_onboarded: 'MSMEs Onboarded',
     impact_total_txn: 'Total Transactions Tracked',
@@ -607,6 +687,45 @@ const translations = {
     impact_countries: 'ASEAN Countries Reached',
     impact_inclusion: 'Financial Inclusion Progress',
     impact_country_breakdown: 'Country Breakdown',
+    // verification
+    verified_label: '✅ Verified',
+    unverified_label: '⚠️ Unverified',
+    not_registered_label: '❌ Not registered',
+    bank_account_label: 'Business Bank',
+    verify_cta_msg: '💡 Send your {reg} cert or bank statement to BizBuddy to earn +20 score points.',
+    open_wa: 'Open WhatsApp →',
+    // loan cards
+    no_loans_found: 'No loan programs found for your country.',
+    eligible_count: '{n}/{total} eligible',
+    apply_wa: 'Apply via WhatsApp →',
+    to_unlock: 'To unlock:',
+    loan_up_to: 'Up to',
+    loan_rate: 'Rate',
+    loan_eligible_badge: '✅ Eligible',
+    loan_locked_badge: '🔒 Locked',
+    gap_score_pts: '+{n} score pts',
+    gap_monthly_rev: '+{n} monthly revenue',
+    gap_months_op: '+{n} months operating',
+    // applications
+    no_apps: 'No applications yet.',
+    start_loan_match: 'Start Loan Match',
+    more_apps: 'Start more applications',
+    find_loan: 'Find a Loan →',
+    loan_wa_msg: 'I want a loan',
+    // time ago
+    time_just_now: 'just now',
+    time_mins_ago: '{n}m ago',
+    time_hours_ago: '{n}h ago',
+    time_days_ago: '{n}d ago',
+    // status labels
+    status_pending_review: 'Under Review',
+    status_approved: 'Approved',
+    status_rejected: 'Not Approved',
+    status_needs_info: 'More Info Needed',
+    // recent sales pagination
+    records_count: '{n} records',
+    prev_page: '← Prev',
+    next_page: 'Next →',
   },
   bm: {
     credit_readiness: 'Skor Kesediaan Kredit',
@@ -701,6 +820,12 @@ const translations = {
     legend_building: 'Membina (<50)',
     legend_unscored: 'Belum Dinilai',
     score_history: 'Sejarah Skor',
+    availableLoans: 'Program Pinjaman',
+    verificationStatus: 'Status Pengesahan',
+    loanAgentTitle: 'Perlu pinjaman?',
+    loanAgentDesc: 'Agen AI kami padankan awak ke pinjaman terbaik dari 5+ bank rakan dalam 2 minit.',
+    loanAgentBtn: 'Mula Padanan Pinjaman →',
+    myApplications: 'Permohonan Saya',
     impact_metrics: 'Metrik Impak',
     impact_onboarded: 'MSME Didaftarkan',
     impact_total_txn: 'Jumlah Transaksi Direkod',
@@ -708,10 +833,53 @@ const translations = {
     impact_countries: 'Negara ASEAN Dicapai',
     impact_inclusion: 'Kemajuan Rangkuman Kewangan',
     impact_country_breakdown: 'Pecahan Negara',
+    // verification
+    verified_label: '✅ Disahkan',
+    unverified_label: '⚠️ Belum Disahkan',
+    not_registered_label: '❌ Belum Daftar',
+    bank_account_label: 'Akaun Bank',
+    verify_cta_msg: '💡 Hantar sijil {reg} atau penyata bank ke BizBuddy untuk dapat +20 mata skor.',
+    open_wa: 'Buka WhatsApp →',
+    // loan cards
+    no_loans_found: 'Tiada program pinjaman dijumpai.',
+    eligible_count: '{n}/{total} layak',
+    apply_wa: 'Mohon via WhatsApp →',
+    to_unlock: 'Untuk buka:',
+    loan_up_to: 'Sehingga',
+    loan_rate: 'Kadar',
+    loan_eligible_badge: '✅ Layak',
+    loan_locked_badge: '🔒 Terkunci',
+    gap_score_pts: '+{n} mata skor',
+    gap_monthly_rev: '+{n} hasil bulanan',
+    gap_months_op: '+{n} bulan beroperasi',
+    // applications
+    no_apps: 'Tiada permohonan lagi.',
+    start_loan_match: 'Mula Padanan Pinjaman',
+    more_apps: 'Mulakan lebih banyak permohonan',
+    find_loan: 'Cari Pinjaman →',
+    loan_wa_msg: 'Saya nak pinjaman',
+    // time ago
+    time_just_now: 'baru sahaja',
+    time_mins_ago: '{n}m lalu',
+    time_hours_ago: '{n}j lalu',
+    time_days_ago: '{n}h lalu',
+    // status labels
+    status_pending_review: 'Dalam Semakan',
+    status_approved: 'Diluluskan',
+    status_rejected: 'Tidak Diluluskan',
+    status_needs_info: 'Perlu Maklumat',
+    // recent sales pagination
+    records_count: '{n} rekod',
+    prev_page: '← Sebelum',
+    next_page: 'Seterus →',
   }
 };
 
-function t(key) { return (translations[currentLang] && translations[currentLang][key]) || translations.en[key] || key; }
+function t(key, vars = {}) {
+  let str = (translations[currentLang] && translations[currentLang][key]) || translations.en[key] || key;
+  Object.entries(vars).forEach(([k, v]) => { str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), v); });
+  return str;
+}
 
 function applyTranslations() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -744,7 +912,7 @@ window.toggleLang = () => {
   }
   // Re-render dynamic content if user is loaded
   if (currentUser) {
-    loadMobileView(currentUser);
+    loadMobileView(currentUser).catch(console.error);
   }
   // Re-render bank view if visible
   if (allUsers.length > 0 && document.getElementById('desktop-view').style.display !== 'none') {
@@ -848,67 +1016,234 @@ function buildScoreBreakdown(user, sales) {
 // ==============================================
 // -- LOAN CTA + PRE-QUAL MODAL --
 // ==============================================
-function updateLoanCTA(user, sales) {
-  const card = document.getElementById('loan-cta-card');
-  if (!card) return;
-  const score = user.credit_score || 0;
-  if (score >= 70) {
-    card.classList.add('visible');
-  } else {
-    card.classList.remove('visible');
-  }
+// ==============================================
+// -- VERIFICATION STATUS --
+// ==============================================
+function buildVerificationStatus(user) {
+    const grid = document.getElementById('verification-grid');
+    const ctaEl = document.getElementById('verify-cta');
+    if (!grid) return;
+    const cc = getUserCountry(user);
+    const ssmRaw = String(user.has_ssm || '').toLowerCase();
+    const bankRaw = String(user.has_bank_account || '').toLowerCase();
+    const ssmYes = ssmRaw.startsWith('y') || ssmRaw.startsWith('a') || ssmRaw === 'ada';
+    const bankYes = bankRaw.startsWith('y') || bankRaw.startsWith('a') || bankRaw === 'ada';
+
+    function verifyStatus(hasDoc, isVerified) {
+        if (isVerified) return { cls: 'verified', label: t('verified_label') };
+        if (hasDoc) return { cls: 'unverified', label: t('unverified_label') };
+        return { cls: 'missing', label: t('not_registered_label') };
+    }
+    const ssmSt = verifyStatus(ssmYes, !!user.ssm_verified);
+    const bankSt = verifyStatus(bankYes, !!user.bank_verified);
+
+    grid.innerHTML = `
+        <div class="verify-item ${ssmSt.cls}">
+            <div class="verify-icon">📋</div>
+            <div class="verify-content">
+                <div class="verify-label">${esc(cc.registration)}</div>
+                <div class="verify-status">${ssmSt.label}</div>
+            </div>
+        </div>
+        <div class="verify-item ${bankSt.cls}">
+            <div class="verify-icon">🏦</div>
+            <div class="verify-content">
+                <div class="verify-label">${t('bank_account_label')}</div>
+                <div class="verify-status">${bankSt.label}</div>
+            </div>
+        </div>`;
+
+    if (ctaEl) {
+        if (!user.ssm_verified || !user.bank_verified) {
+            const msg = t('verify_cta_msg', { reg: cc.registration });
+            ctaEl.innerHTML = `${msg} <a href="${WA_LINKS.verify()}" class="btn-link">${t('open_wa')}</a>`;
+            ctaEl.style.display = 'block';
+        } else {
+            ctaEl.style.display = 'none';
+        }
+    }
 }
 
-window.openPrequalModal = () => {
-  if (!currentUser) return;
-  const score = currentUser.credit_score || 0;
-  const sales = currentUser.sales || [];
-  const total = sales.reduce((s,x) => s + (x.amount||0), 0);
-  const verified = sales.filter(s => s.source === 'screenshot').length;
-  const verifiedPct = sales.length > 0 ? Math.round((verified/sales.length)*100) : 0;
+// ==============================================
+// -- LOAN AGENT CTA BANNER --
+// ==============================================
+function buildLoanAgentCTA(user) {
+    const btn = document.getElementById('loan-agent-compact-btn');
+    if (!btn) return;
+    btn.href = WA_LINKS.loanMatch();
+}
 
-  document.getElementById('pq-score').textContent = score + '/100';
-  document.getElementById('pq-revenue').textContent = getCur(currentUser) + total.toLocaleString();
-  document.getElementById('pq-txn').textContent = sales.length;
-  document.getElementById('pq-verified').textContent = verifiedPct + '%';
+// ==============================================
+// -- LOAN PROGRAMS (Firestore) --
+// ==============================================
+async function loadLoanPrograms(userData) {
+    const country = userData.country || 'MY';
+    const score = userData.credit_score || 0;
+    const monthlyRev = parseMonthlyRevenue(userData.monthly_revenue);
+    const bizAgeMonths = parseBizAgeMonths(userData.biz_age);
 
-  document.getElementById('prequal-modal').classList.add('open');
-};
+    const snap = await getDocs(
+        query(
+            collection(db, 'loan_products'),
+            where('active', '==', true),
+            where('countries', 'array-contains', country)
+        )
+    );
 
-window.closePrequalModal = () => {
-  document.getElementById('prequal-modal').classList.remove('open');
-};
+    const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-document.getElementById('prequal-modal').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('prequal-modal')) closePrequalModal();
-});
+    return products.map(p => {
+        const eligible =
+            score >= (p.min_credit_score || 0) &&
+            monthlyRev >= (p.min_monthly_revenue || 0) &&
+            bizAgeMonths >= (p.min_business_age_months || 0);
+        const gapData = [];
+        if (score < (p.min_credit_score || 0))
+            gapData.push({ key: 'gap_score_pts', n: p.min_credit_score - score });
+        if (monthlyRev < (p.min_monthly_revenue || 0))
+            gapData.push({ key: 'gap_monthly_rev', n: (p.min_monthly_revenue - monthlyRev).toLocaleString() });
+        if (bizAgeMonths < (p.min_business_age_months || 0))
+            gapData.push({ key: 'gap_months_op', n: p.min_business_age_months - bizAgeMonths });
+        return { ...p, eligible, gapData };
+    }).sort((a, b) => {
+        if (a.eligible && !b.eligible) return -1;
+        if (!a.eligible && b.eligible) return 1;
+        return (a.min_credit_score || 0) - (b.min_credit_score || 0);
+    });
+}
 
-window.submitPrequal = () => {
-  if (!currentUser) return;
-  const score = currentUser.credit_score || 0;
-  const name = currentUser.owner_name || 'Peniaga';
-  const biz = currentUser.business_name || 'Perniagaan';
-  const sales = currentUser.sales || [];
-  const total = sales.reduce((s,x) => s + (x.amount||0), 0);
-  const verified = sales.filter(s => s.source === 'screenshot').length;
-  const verifiedPct = sales.length > 0 ? Math.round((verified/sales.length)*100) : 0;
-  const certDate = currentUser.score_date || new Date().toISOString().split('T')[0];
-  const certId = `NC-${(currentUser.phone||'0000').slice(-4)}-${certDate.replace(/-/g,'')}`;
+function buildLoanCards(products, user) {
+    const list = document.getElementById('loan-rec-list');
+    const badge = document.getElementById('loan-rec-badge');
+    const cc = getUserCountry(user);
+    const cur = cc.currency;
+    if (!list) return;
 
-  const msg = `🏦 *BizBuddy - Loan Pre-Qualification*\n\n` +
-    `👤 *${name}* · ${biz}\n` +
-    `⭐ Credit Score: *${score}/100*\n` +
-    `💰 Total Revenue: *${getCur(currentUser)}${total.toLocaleString()}*\n` +
-    `📦 Transactions: *${sales.length}* (${verifiedPct}% verified)\n` +
-    `🆔 Certificate: *${certId}*\n\n` +
-    `✅ This MSME has been pre-qualified by BizBuddy AI scoring.\n` +
-    `📞 Contact: +${currentUser.phone}\n\n` +
-    `🔒 Data shared with consent under PDPA Malaysia.`;
+    if (products.length === 0) {
+        list.innerHTML = `<div class="loan-empty">${t('no_loans_found')}</div>`;
+        if (badge) badge.textContent = '0';
+        return;
+    }
 
-  const url = 'https://wa.me/?text=' + encodeURIComponent(msg);
-  window.open(url, '_blank');
-  closePrequalModal();
-};
+    const eligible = products.filter(p => p.eligible).length;
+    if (badge) badge.textContent = t('eligible_count', { n: eligible, total: products.length });
+
+    list.innerHTML = products.map(p => {
+        const maxAmt = p.max_amount ? `${cur}${Number(p.max_amount).toLocaleString()}` : '-';
+        const rate = p.interest_rate != null ? `${p.interest_rate}%` : '-';
+        return `
+        <div class="loan-card ${p.eligible ? 'eligible' : 'locked'}">
+            <div class="loan-card-header">
+                <div class="loan-card-bank">${esc(p.bank_name || '-')}</div>
+                ${p.eligible
+                    ? `<span class="loan-badge eligible">${t('loan_eligible_badge')}</span>`
+                    : `<span class="loan-badge locked">${t('loan_locked_badge')}</span>`}
+            </div>
+            <div class="loan-card-product">${esc(p.product_name || '-')}</div>
+            <div class="loan-card-stats">
+                <div class="loan-stat">
+                    <div class="loan-stat-label">${t('loan_up_to')}</div>
+                    <div class="loan-stat-value">${maxAmt}</div>
+                </div>
+                <div class="loan-stat">
+                    <div class="loan-stat-label">${t('loan_rate')}</div>
+                    <div class="loan-stat-value">${rate}</div>
+                </div>
+            </div>
+            ${p.eligible
+                ? `<a href="https://wa.me/${BOT_PHONE}?text=${encodeURIComponent('5')}" class="loan-card-cta">${t('apply_wa')}</a>`
+                : `<div class="loan-card-gaps">
+                       <div class="loan-gaps-label">${t('to_unlock')}</div>
+                       <ul>${p.gapData.map(g => `<li>${esc(t(g.key, { n: g.n }))}</li>`).join('')}</ul>
+                   </div>`}
+        </div>`;
+    }).join('');
+}
+
+// ==============================================
+// -- MY LOAN APPLICATIONS --
+// ==============================================
+async function loadMyApplications(phone) {
+    if (!phone) return [];
+    const snap = await getDocs(
+        query(
+            collection(db, 'loan_applications'),
+            where('user_id', '==', phone),
+            limit(10)
+        )
+    );
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => {
+            const aT = a.submitted_at?.toMillis?.() || 0;
+            const bT = b.submitted_at?.toMillis?.() || 0;
+            return bT - aT;
+        });
+}
+
+function statusEmoji(s) {
+    return ({ pending_review: '⏳', approved: '✅', rejected: '❌', needs_info: '📝' })[s] || '⏳';
+}
+function statusLabel(s) {
+    const keyMap = { pending_review: 'status_pending_review', approved: 'status_approved', rejected: 'status_rejected', needs_info: 'status_needs_info' };
+    return t(keyMap[s] || 'status_pending_review');
+}
+function formatTimeAgo(ts) {
+    if (!ts) return '-';
+    const ms = ts?.toMillis?.() || (typeof ts === 'number' ? ts : Date.parse(ts));
+    if (!ms) return '-';
+    const diff = Math.floor((Date.now() - ms) / 1000);
+    if (diff < 60) return t('time_just_now');
+    if (diff < 3600) return t('time_mins_ago', { n: Math.floor(diff/60) });
+    if (diff < 86400) return t('time_hours_ago', { n: Math.floor(diff/3600) });
+    return t('time_days_ago', { n: Math.floor(diff/86400) });
+}
+
+function buildApplicationsList(apps, cur) {
+    const list = document.getElementById('applications-list');
+    const badge = document.getElementById('applications-badge');
+    if (!list) return;
+    if (badge) badge.textContent = apps.length;
+
+    if (apps.length === 0) {
+        list.innerHTML = `
+            <div class="app-empty">
+                <div class="app-empty-icon">🚀</div>
+                <p>${t('no_apps')}</p>
+                <a href="${WA_LINKS.loanMatch()}" class="btn-primary-sm">${t('start_loan_match')}</a>
+            </div>`;
+        return;
+    }
+
+    const rowsHtml = apps.map(app => {
+        const status = app.status || 'pending_review';
+        const emoji = statusEmoji(status);
+        const label = statusLabel(status);
+        const amt = app.amount ? `${cur}${Number(app.amount).toLocaleString()}` : '-';
+        return `
+            <div class="app-row ${status}">
+                <div class="app-row-main">
+                    <div class="app-bank">${esc(app.bank_name || '-')}</div>
+                    <div class="app-amount">${amt}</div>
+                </div>
+                <div class="app-row-meta">
+                    <span class="app-status ${status}">${emoji} ${label}</span>
+                    <span class="app-date">${formatTimeAgo(app.submitted_at)}</span>
+                </div>
+                <div class="app-ref">Ref: ${esc(app.id)}</div>
+            </div>`;
+    }).join('');
+
+    const fillCta = apps.length < 3 ? `
+        <div class="apps-fill-cta">
+            <div class="apps-fill-inner">
+                <div class="apps-fill-icon">🚀</div>
+                <p>${t('more_apps')}</p>
+                <a href="${WA_LINKS.loanMatch()}" class="apps-fill-btn">${t('find_loan')}</a>
+            </div>
+        </div>` : '';
+
+    list.innerHTML = `<div class="apps-list">${rowsHtml}${fillCta}</div>`;
+}
 
 // ==============================================
 // -- GROWTH / TREND INDICATORS --
@@ -1353,7 +1688,8 @@ function renderBankView(users) {
 }
 
 // Allow Enter key on inputs
-document.getElementById('phone-input').addEventListener('keydown', e => { if(e.key==='Enter') window.handleLogin(); });
+document.getElementById('phone-input')?.addEventListener('keydown', e => { if(e.key==='Enter') window.handleLogin(); });
+document.getElementById('bank-code-input')?.addEventListener('keydown', e => { if(e.key==='Enter') window.handleBankLogin?.(); });
 
 // -- MODAL --
 window.openModal = (phone) => {
@@ -1487,35 +1823,6 @@ function renderTablePage() {
   }
 }
 
-// -- WHATSAPP SHARE --
-window.shareViaWhatsApp = () => {
-  if (!currentUser) return;
-  const score = currentUser.credit_score || 0;
-  const name = currentUser.owner_name || 'Peniaga';
-  const biz = currentUser.business_name || 'Perniagaan saya';
-  let status, emoji;
-  if (score >= 70) { status = 'Loan Ready ✅'; emoji = '🎉'; }
-  else if (score >= 50) { status = 'In Progress 🔄'; emoji = '💪'; }
-  else if (score > 0) { status = 'Building 📈'; emoji = '🚀'; }
-  else { status = 'Not yet scored'; emoji = '⏳'; }
-
-  const msg = `${emoji} *BizBuddy Score Update!*
-
-` +
-    `👤 ${name} · ${biz}
-` +
-    `⭐ Credit Score: *${score > 0 ? score + '/100' : 'Not yet generated'}*
-` +
-    `📊 Status: *${status}*
-
-` +
-    `💡 Track your business finances & build credit history with BizBuddy!
-` +
-    `👉 wa.me/15556648532`;
-
-  const url = 'https://wa.me/?text=' + encodeURIComponent(msg);
-  window.open(url, '_blank');
-};
 
 window.exportPDF = () => {
   const users = allUsers;
@@ -1679,3 +1986,5 @@ function drawMalaysiaMap(users) {
   canvas.onmouseleave=function(){tooltip.style.display='none';};
 }
 window.drawMalaysiaMap=drawMalaysiaMap;
+
+// buildLoanRecommendations replaced by async loadLoanPrograms + buildLoanCards above

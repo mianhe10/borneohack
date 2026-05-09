@@ -5,11 +5,18 @@ const { sendMessage } = require('../send');
 const handleMenu = require('./menu');
 const { handleLogSale } = require('./sale');
 const { handleAiChat } = require('./chat');
-const { handleContentMenu, handleContentGenerate } = require('./content');
 const { generateCreditScore } = require('../features/credit');
 const { showProfile, showStoredData, showCertificate, showScoreBreakdown } = require('../features/profile');
 const { showSalesSummary } = require('../features/summary');
-const { showLoanChecklist, showLoanReferral } = require('../features/loan');
+const { showLoanChecklist } = require('../features/loan');
+const {
+    matchLoans, sendMatches, handleLoanSelection, handleDocUpload,
+    showLoanStatus, handleExpressQ1, handleExpressQ2, handleExpressQ3,
+    handleExpressQ4, handleExpressQ5, handleExpressQ6,
+} = require('../features/loan_agent');
+
+const LOAN_KEYWORDS = ['loan', 'pinjaman', 'pinjam', 'borrow', 'financing', 'pembiayaan', 'hutang', 'kredit baru', 'apply loan', 'mohon pinjaman', 'nak pinjam', 'need money', 'need funding'];
+const VERIFY_KEYWORDS = ['verify', 'pengesahan', 'sahkan', 'verification', 'ssm', 'bank statement', 'penyata bank', 'bank account', 'akaun bank', 'boost score', 'tingkatkan skor', 'upload document', 'hantar dokumen'];
 
 const YES = new Set(['ya', 'yes', 'y', 'sudah', 'ada', 'dah', 'yep', 'yup', 'ye', 'agree', 'setuju', 'ok']);
 const NO  = new Set(['tidak', 'no', 'n', 'belum', 'tak', 'tiada', 'nope']);
@@ -19,6 +26,85 @@ async function handleText(phone, text) {
     const userSnap = await userRef.get();
     const textUpper = text.toUpperCase().trim();
     const lang = userSnap.exists ? (userSnap.data().language || 'bm') : 'bm';
+
+    // ── Web Pre-Match token: matches BB-XXXXXXXX anywhere in message ──
+    const tokenMatch = text.trim().match(/\b(BB-[A-Z0-9]{8})\b/i);
+    if (tokenMatch) {
+        const token = tokenMatch[1].toUpperCase();
+        const signupSnap = await db.collection('landing_signups').doc(token).get();
+
+        if (!signupSnap.exists) {
+            await sendMessage(phone, lang === 'bm'
+                ? '❌ Pautan permohonan ini tidak sah atau tidak dijumpai.\n\nTaip *MENU* untuk mulakan semula.'
+                : '❌ This application link is invalid or not found.\n\nType *MENU* to start fresh.');
+            return;
+        }
+
+        const signup = signupSnap.data();
+
+        if (signup.expires_at && signup.expires_at.toDate() < new Date()) {
+            await sendMessage(phone, lang === 'bm'
+                ? '⏰ Pautan ini telah tamat tempoh (48 jam).\n\nTaip *5* untuk mohon semula atau *MENU* untuk kembali.'
+                : '⏰ This application link has expired (48 hours).\n\nType *5* to apply again or *MENU* to go back.');
+            return;
+        }
+
+        // Find the selected loan from matches
+        const matches = signup.matches || [];
+        const selectedId = signup.selected_loan_id;
+        const selectedMatch = selectedId
+            ? matches.find(m => m.loan_product_id === selectedId)
+            : matches[0]; // fallback to best match
+
+        if (!selectedMatch) {
+            await sendMessage(phone, lang === 'bm'
+                ? '⚠️ Tiada padanan pinjaman dalam permohonan ini.\n\nTaip *5* untuk cari pinjaman atau *MENU* untuk kembali.'
+                : '⚠️ No loan match found in this application.\n\nType *5* to find loans or *MENU* to go back.');
+            return;
+        }
+
+        // Upsert users/{phone} — preserve existing data if returning user
+        const existingUser = userSnap.exists ? userSnap.data() : {};
+        const userLang = existingUser.language || 'en';
+
+        await userRef.set({
+            ...existingUser,
+            owner_name: existingUser.owner_name || signup.name,
+            country: existingUser.country || signup.country || 'MY',
+            language: existingUser.language || 'en',
+            sales: existingUser.sales || [],
+            registered_date: existingUser.registered_date || today(),
+            express_loan_data: signup.express_loan_data || {},
+            selected_loan: {
+                id: selectedMatch.loan_product_id,
+                bank_name: selectedMatch.bank_name,
+                product_name: selectedMatch.product_name,
+                max_amount: selectedMatch.amount,
+                interest_rate: selectedMatch.interest_rate,
+                required_docs: selectedMatch.required_docs || [],
+            },
+            state: 'loan_doc_upload',
+        }, { merge: true });
+
+        // Mark token as used
+        await db.collection('landing_signups').doc(token).update({
+            status: 'whatsapp_connected',
+            whatsapp_phone: phone,
+            connected_at: new Date(),
+        });
+
+        const name = existingUser.owner_name || signup.name || 'there';
+        const amt = (selectedMatch.amount || 0).toLocaleString();
+        const docs = (selectedMatch.required_docs || ['IC photo', 'bank statement (last 6 months)'])
+            .map(d => `📎 ${d.replace(/_/g, ' ')}`)
+            .join('\n');
+
+        await sendMessage(phone, userLang === 'bm'
+            ? `👋 *Hai ${name}!*\n\nPadanan pinjaman awak sudah sedia:\n\n🏦 *${selectedMatch.bank_name}* — ${selectedMatch.product_name}\n💰 ${signup.country === 'ID' ? 'Rp' : signup.country === 'PH' ? '₱' : 'RM'}${amt} @ ${selectedMatch.interest_rate}% setahun\n📊 ${selectedMatch.match_percentage}% padanan\n\nUntuk hantar permohonan, saya perlukan:\n${docs}\n\n📤 *Hantar gambar atau dokumen dalam chat ini sekarang.*\n\nTaip *LANGKAU* jika tiada dokumen buat masa ni.`
+            : `👋 *Hi ${name}!*\n\nYour loan match is ready:\n\n🏦 *${selectedMatch.bank_name}* — ${selectedMatch.product_name}\n💰 ${signup.country === 'ID' ? 'Rp' : signup.country === 'PH' ? '₱' : 'RM'}${amt} @ ${selectedMatch.interest_rate}% p.a.\n📊 ${selectedMatch.match_percentage}% match\n\nTo submit your application, I need:\n${docs}\n\n📤 *Send the image or document here in this chat now.*\n\nType *SKIP* if you don't have documents right now.`
+        );
+        return;
+    }
 
     // ── Language toggle — works anytime ──
     if (textUpper === 'ENGLISH') {
@@ -69,17 +155,34 @@ async function handleText(phone, text) {
 
     // ── New user ──
     if (!userSnap.exists) {
-        await userRef.set({ state: 'ask_consent', sales: [], language: 'bm' });
-        await sendMessage(phone,
-            '👋 *Selamat datang ke BizBuddy!*\n\n' +
-            'Saya akan bantu awak bina profil perniagaan & skor kredit dalam masa 5 minit.\n\n' +
-            '🔒 *Privasi & Data Awak:*\n' +
-            '• BizBuddy menyimpan data perniagaan awak (nama, jualan, produk) untuk membina profil kredit.\n' +
-            '• Data awak *tidak akan dikongsi* dengan mana-mana pihak tanpa kebenaran awak.\n' +
-            '• Awak boleh padam semua data bila-bila masa dengan taip *RESET*.\n\n' +
-            '💡 _Tip: Taip ENGLISH untuk tukar bahasa_\n\n' +
-            'Taip *SETUJU* untuk teruskan\nTaip *ENGLISH* dahulu jika mahu tukar bahasa'
-        );
+        const lowerText = text.toLowerCase();
+        const hasLoanIntent = LOAN_KEYWORDS.some(kw => lowerText.includes(kw));
+        if (hasLoanIntent) {
+            await userRef.set({ state: 'ask_consent_loan_choice', sales: [], language: 'bm' });
+            await sendMessage(phone,
+                '👋 *Selamat datang ke BizBuddy!*\n\n' +
+                '🏦 Awak berminat dengan *pinjaman perniagaan*? Bagus!\n\n' +
+                '🔒 *Privasi awak:* Data disimpan secara selamat dan tidak dikongsi tanpa kebenaran awak. ' +
+                'Awak boleh padam semua data bila-bila masa dengan taip *RESET*.\n\n' +
+                '*Apa yang awak mahu buat?*\n\n' +
+                '1️⃣ ⚡ *Cari pinjaman sekarang* (2 minit)\n' +
+                '2️⃣ 📊 *Bina profil kredit penuh + pinjaman* (5 minit)\n\n' +
+                '_Balas 1 atau 2 (ini juga mengesahkan persetujuan awak)_\n' +
+                '💡 Taip ENGLISH untuk tukar bahasa'
+            );
+        } else {
+            await userRef.set({ state: 'ask_consent', sales: [], language: 'bm' });
+            await sendMessage(phone,
+                '👋 *Selamat datang ke BizBuddy!*\n\n' +
+                'Saya akan bantu awak bina profil perniagaan & skor kredit dalam masa 5 minit.\n\n' +
+                '🔒 *Privasi & Data Awak:*\n' +
+                '• BizBuddy menyimpan data perniagaan awak (nama, jualan, produk) untuk membina profil kredit.\n' +
+                '• Data awak *tidak akan dikongsi* dengan mana-mana pihak tanpa kebenaran awak.\n' +
+                '• Awak boleh padam semua data bila-bila masa dengan taip *RESET*.\n\n' +
+                '💡 _Tip: Taip ENGLISH untuk tukar bahasa_\n\n' +
+                'Taip *SETUJU* untuk teruskan\nTaip *ENGLISH* dahulu jika mahu tukar bahasa'
+            );
+        }
         return;
     }
 
@@ -102,7 +205,9 @@ async function handleText(phone, text) {
     if (textUpper === 'PINJAMAN' || textUpper === 'LOAN') { await showLoanChecklist(phone, userRef); return; }
     if (textUpper === 'DATA') { await showStoredData(phone, userRef); return; }
     if (textUpper === 'BREAKDOWN' || textUpper === 'PECAHAN') { await showScoreBreakdown(phone, userRef); return; }
-    if (textUpper === 'RUJUK' || textUpper === 'REFER') { await showLoanReferral(phone, userRef); return; }
+    if (['STATUS', 'MY LOAN', 'MY LOANS', 'PERMOHONAN', 'APPLICATION', 'APPLICATIONS'].includes(textUpper)) {
+        await showLoanStatus(phone, userRef); return;
+    }
 
     if (textUpper === 'KEMASKINI' || textUpper === 'UPDATE') {
         await userRef.update({ state: 'credit_q1' });
@@ -130,9 +235,7 @@ async function handleText(phone, text) {
 
     // ── SKIP ──
     if (textUpper === 'LANGKAU' || textUpper === 'SKIP') {
-        if (state === 'content_generate') {
-            // fall through to content handler
-        } else if (state === 'await_ssm_cert_then_score') {
+        if (state === 'await_ssm_cert_then_score') {
             await userRef.update({ state: 'menu' });
             await sendMessage(phone, lang === 'bm' ? '⏭️ Pengesahan SSM dilangkau (7 mata, bukan 10).\n\n⏳ Sedang mengira skor kredit awak...' : '⏭️ SSM verification skipped (7 pts instead of 10).\n\n⏳ Calculating your credit score...');
             await generateCreditScore(phone, userRef);
@@ -150,13 +253,65 @@ async function handleText(phone, text) {
             await userRef.update({ state: 'menu' });
             await sendMessage(phone, lang === 'bm' ? '⏭️ Pengesahan bank dilangkau (7 mata, bukan 10).\n\nTaip *MENU* untuk kembali' : '⏭️ Bank verification skipped (7 pts instead of 10).\n\nType *MENU* to go back');
             return;
+        } else if (state === 'loan_doc_upload') {
+            await handleDocUpload(phone, null, userRef);
+            return;
         } else {
             await sendMessage(phone, lang === 'bm' ? 'Tiada tindakan untuk dilangkau.\n\nTaip *MENU* untuk kembali.' : 'Nothing to skip.\n\nType *MENU* to go back.');
             return;
         }
     }
 
+    // ── Global MENU escape — works from any non-onboarding state (per spec) ──
+    const ONBOARDING_STATES = new Set(['ask_consent', 'ask_consent_loan_choice', 'ask_country', 'ask_country_express', 'ask_state', 'ask_owner_name', 'ask_business_name', 'ask_product', 'ask_revenue']);
+    if (['MENU', 'HI', 'HAI', 'HELLO', 'START'].includes(textUpper) && !ONBOARDING_STATES.has(state)) {
+        await userRef.update({ state: 'menu' });
+        await handleMenu(phone, 'MENU', userRef);
+        return;
+    }
+
     // ── State machine ──
+    if (state === 'ask_consent_loan_choice') {
+        if (textUpper === '1') {
+            await userRef.update({ consent: true, consent_date: new Date().toISOString(), state: 'ask_country_express' });
+            await sendMessage(phone, lang === 'bm'
+                ? '🌏 *Negara mana awak beroperasi?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Balas dengan nombor_'
+                : '🌏 *Which country do you operate in?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Reply with a number_'
+            );
+        } else if (textUpper === '2') {
+            await userRef.update({ consent: true, consent_date: new Date().toISOString(), state: 'ask_country' });
+            await sendMessage(phone, lang === 'bm'
+                ? '✅ *Terima kasih!*\n\n🌏 *Negara mana awak beroperasi?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Balas dengan nombor_'
+                : '✅ *Thank you!*\n\n🌏 *Which country do you operate in?*\n\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines\n\n_Reply with a number_'
+            );
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? 'Sila balas *1* untuk cari pinjaman express atau *2* untuk bina profil kredit penuh.'
+                : 'Please reply *1* for express loan search or *2* to build full credit profile.'
+            );
+        }
+        return;
+    }
+
+    if (state === 'ask_country_express') {
+        const countryMap = { '1': 'MY', '2': 'ID', '3': 'PH' };
+        const code = countryMap[textUpper];
+        if (code) {
+            const name = userData.owner_name || userData.business_name || (lang === 'bm' ? 'Peniaga' : 'there');
+            await userRef.update({ country: code, state: 'express_loan_q1', express_loan_data: {} });
+            await sendMessage(phone, lang === 'bm'
+                ? `🏦 *BizBuddy Loan Agent*\n\nHai! Jom cari pinjaman terbaik untuk awak dalam masa 2 minit!\n\nSoalan 1️⃣: Apa *nama perniagaan* awak?\n_(Taip nama perniagaan awak)_`
+                : `🏦 *BizBuddy Loan Agent*\n\nHi! Let's find your best loan match in 2 minutes!\n\nQuestion 1️⃣: What is your *business name*?\n_(Type your business name)_`
+            );
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? 'Sila pilih 1-3:\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines'
+                : 'Please choose 1-3:\n1️⃣ 🇲🇾 Malaysia\n2️⃣ 🇮🇩 Indonesia\n3️⃣ 🇵🇭 Philippines'
+            );
+        }
+        return;
+    }
+
     if (state === 'ask_consent') {
         if (YES.has(textUpper.toLowerCase())) {
             await userRef.update({ state: 'ask_country', consent: true, consent_date: new Date().toISOString() });
@@ -267,10 +422,41 @@ async function handleText(phone, text) {
     }
 
     if (state === 'menu') {
-        const MENU_CMDS = new Set(['1','2','3','4','5','6','7','8','9','MENU','PROFIL','PROFILE','SIJIL','CERTIFICATE','PINJAMAN','LOAN','RESET','DATA','BREAKDOWN','PECAHAN','RUJUK','REFER','KEMASKINI','UPDATE','HAI','HI','HELLO','START']);
+        const MENU_CMDS = new Set(['1','2','3','4','5','6','7','8','9','MENU','PROFIL','PROFILE','SIJIL','CERTIFICATE','PINJAMAN','LOAN','RESET','DATA','BREAKDOWN','PECAHAN','KEMASKINI','UPDATE','HAI','HI','HELLO','START','STATUS','PERMOHONAN','APPLICATION']);
         if (MENU_CMDS.has(textUpper)) {
             await handleMenu(phone, text, userRef);
         } else {
+            // Loan intent detection from natural language
+            const lowerText = text.toLowerCase();
+            const hasLoanIntent = LOAN_KEYWORDS.some(kw => lowerText.includes(kw));
+            if (hasLoanIntent) {
+                const name = userData.owner_name || userData.business_name || (lang === 'bm' ? 'Peniaga' : 'there');
+                const existingBizName = userData.business_name;
+                if (existingBizName) {
+                    // Pre-fill from profile, skip Q1
+                    await userRef.update({ state: 'express_loan_q2', express_loan_data: { business_name: existingBizName } });
+                    await sendMessage(phone, lang === 'bm'
+                        ? `🏦 *BizBuddy Loan Agent*\n\nHai ${name}! Jom cari pinjaman terbaik untuk awak!\n\n✅ Perniagaan: *${existingBizName}*\n\nSoalan 2️⃣: Apa *jenis perniagaan* awak?\n\n1️⃣ 🍜 Makanan & Minuman\n2️⃣ 🛍️ Runcit / Perniagaan\n3️⃣ 🚚 Perkhidmatan\n4️⃣ 🏭 Pembuatan\n5️⃣ 📦 Lain-lain\n\n_Balas dengan nombor_`
+                        : `🏦 *BizBuddy Loan Agent*\n\nHi ${name}! Let's find your best loan match!\n\n✅ Business: *${existingBizName}*\n\nQuestion 2️⃣: What *type of business* is it?\n\n1️⃣ 🍜 Food & Beverage\n2️⃣ 🛍️ Retail / Trading\n3️⃣ 🚚 Services\n4️⃣ 🏭 Manufacturing\n5️⃣ 📦 Other\n\n_Reply with a number_`);
+                } else {
+                    await userRef.update({ state: 'express_loan_q1', express_loan_data: {} });
+                    await sendMessage(phone, lang === 'bm'
+                        ? `🏦 *BizBuddy Loan Agent*\n\nHai ${name}! Jom cari pinjaman terbaik untuk awak dalam masa 2 minit!\n\nSoalan 1️⃣: Apa *nama perniagaan* awak?\n_(Taip nama perniagaan awak)_`
+                        : `🏦 *BizBuddy Loan Agent*\n\nHi ${name}! Let's find your best loan match in 2 minutes!\n\nQuestion 1️⃣: What is your *business name*?\n_(Type your business name)_`);
+                }
+                return;
+            }
+            // Verify/document intent detection
+            const hasVerifyIntent = VERIFY_KEYWORDS.some(kw => lowerText.includes(kw));
+            if (hasVerifyIntent) {
+                await userRef.update({ state: 'credit_q1' });
+                await sendMessage(phone,
+                    lang === 'bm'
+                        ? '🔄 *Kemaskini Maklumat Kredit*\n\nSoalan 1️⃣: Berapa lama perniagaan awak dah beroperasi?\n_(Contoh: 3 bulan, 1 tahun, 5 tahun)_'
+                        : '🔄 *Update Credit Info*\n\nQuestion 1️⃣: How long has your business been operating?\n_(Example: 3 months, 1 year, 5 years)_'
+                );
+                return;
+            }
             const { smartHandle } = require('./smart');
             await smartHandle(phone, text, userRef);
         }
@@ -279,8 +465,6 @@ async function handleText(phone, text) {
 
     if (state === 'log_sale') { await handleLogSale(phone, text, userRef); return; }
     if (state === 'ai_chat') { await handleAiChat(phone, text, userRef); return; }
-    if (state === 'content_menu') { await handleContentMenu(phone, text, userRef); return; }
-    if (state === 'content_generate') { await handleContentGenerate(phone, text, userRef); return; }
 
     if (state === 'credit_confirm') {
         if (YES.has(textUpper.toLowerCase())) {
@@ -371,6 +555,49 @@ async function handleText(phone, text) {
             await generateCreditScore(phone, userRef);
         } else {
             await sendMessage(phone, lang === 'bm' ? `⚠️ Sila balas *Ya* atau *Tidak* sahaja.\n\n${cc.reg_question_bm}\n_(Balas: Ya / Tidak)_` : `⚠️ Please reply *Yes* or *No* only.\n\n${cc.reg_question_en}\n_(Reply: Yes / No)_`);
+        }
+        return;
+    }
+
+    // ── Loan Agent state machine ────────────────────────────────────────────
+    if (state === 'express_loan_q1') { await handleExpressQ1(phone, text, userRef); return; }
+    if (state === 'express_loan_q2') { await handleExpressQ2(phone, text, userRef); return; }
+    if (state === 'express_loan_q3') { await handleExpressQ3(phone, text, userRef); return; }
+    if (state === 'express_loan_q4') { await handleExpressQ4(phone, text, userRef); return; }
+    if (state === 'express_loan_q5') { await handleExpressQ5(phone, text, userRef); return; }
+    if (state === 'express_loan_q6') { await handleExpressQ6(phone, text, userRef); return; }
+
+    if (state === 'loan_match_review') { await handleLoanSelection(phone, text, userRef); return; }
+
+    if (state === 'loan_doc_upload') {
+        if (textUpper === 'LANGKAU' || textUpper === 'SKIP') {
+            await handleDocUpload(phone, null, userRef);
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? `📎 Sila hantar *gambar atau dokumen* (penyata bank, resit, dll).\n\nTaip *LANGKAU* untuk hantar permohonan tanpa dokumen buat masa ni.`
+                : `📎 Please send an *image or document* (bank statement, receipt, etc).\n\nType *SKIP* to submit the application without documents for now.`);
+        }
+        return;
+    }
+
+    if (state === 'loan_proactive_review') {
+        if (YES.has(textUpper.toLowerCase())) {
+            await sendMessage(phone, lang === 'bm'
+                ? `⏳ Sedang cari pinjaman terbaik untuk awak...`
+                : `⏳ Finding the best loans for you...`);
+            const fresh = (await userRef.get()).data();
+            const matches = await matchLoans(fresh, lang);
+            if (!matches || matches.length === 0) {
+                await userRef.update({ state: 'menu' });
+                await sendMessage(phone, lang === 'bm'
+                    ? `Tiada pinjaman yang sesuai dijumpai buat masa ni.\nTaip *MENU* untuk kembali.`
+                    : `No matching loans found right now.\nType *MENU* to go back.`);
+            } else {
+                await sendMatches(phone, userRef, matches, fresh.credit_score || 0, lang);
+            }
+        } else {
+            await userRef.update({ state: 'menu' });
+            await handleMenu(phone, 'MENU', userRef);
         }
         return;
     }

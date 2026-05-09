@@ -1,0 +1,253 @@
+================================================================
+BIZBUDDY — USER (MSME) DASHBOARD FRONTEND
+Files: public/dashboard.html + public/app.js + public/style.css
+================================================================
+
+----------------------------------------------------------------
+OVERVIEW
+----------------------------------------------------------------
+Single-page PWA. User logs in with WhatsApp phone number.
+Reads from Firestore collection: users/{phone}
+Dark mode default. Light mode toggle. EN/BM bilingual.
+Installable (Add to Home Screen banner).
+
+----------------------------------------------------------------
+AUTH FLOW
+----------------------------------------------------------------
+1. Page loads → 3-second loading screen (BizBuddy wordmark + spinner)
+2. Login screen appears:
+   - Logo (icons/main-logo.png)
+   - Tagline: "Financial Identity for Every Entrepreneur"
+   - Input: WhatsApp number (with country code, e.g. 60123456789)
+   - Button: "Access Dashboard ->"
+3. On submit:
+   - Firestore lookup: users/{phone}
+   - If not found → error: "No account found. Please register via WhatsApp first."
+   - If found → load dashboard
+
+----------------------------------------------------------------
+TOP NAV
+----------------------------------------------------------------
+- Left: horizontal-logo.png (32px height)
+- Right:
+  - User badge (owner_name or business_name)
+  - Last updated timestamp
+  - ☰ Hamburger → opens Nav Drawer
+
+NAV DRAWER (slides in from right):
+  - User name + business name
+  - ↻ Refresh Data
+  - ☀️/🌙 Switch theme
+  - 🌐 Toggle language (EN ↔ BM)
+  - 🏠 Back to Home
+  - ⏻ Logout
+
+----------------------------------------------------------------
+PULL TO REFRESH
+----------------------------------------------------------------
+Pull down when scrolled to top → refresh indicator → re-fetch Firestore → re-render dashboard
+
+----------------------------------------------------------------
+SECTIONS (top to bottom, mobile-view)
+----------------------------------------------------------------
+
+1. SCORE HERO
+   ├── Label: "Credit Readiness Score"
+   ├── Animated SVG arc circle (140x140)
+   │   └── Color:
+   │       ≥70 → green (#06d6a0)  badge: "✅ Loan Ready"
+   │       ≥50 → gold (#ffd166)   badge: "🔄 In Progress"
+   │       >0  → red (#ff6b6b)    badge: "📈 Building Profile"
+   │       0   → grey             badge: "⏳ Not Yet Scored"
+   ├── Score number (animates 0→score over 1200ms, shows "N/A" if 0)
+   ├── Score badge (colored + border)
+   ├── Owner name
+   ├── Business name
+   └── "Share Credit Score via WhatsApp" button → builds WA share link
+
+2. STATS ROW (4 cards, animated counters)
+   ├── 💰 Total Revenue    (cur+total, trend vs last week)
+   ├── 📦 Transactions     (count, trend)
+   ├── 📈 Avg per Sale     (cur+avg, trend)
+   └── 🏆 Best Sale        (cur+best, trend)
+   Trend indicators: ^ N% / ↓ N% / "No change" vs last 7 days
+
+3. LOAN CTA CARD  [only visible when score ≥ 70]
+   ├── 🎉 "You're Pre-Qualified!"
+   ├── "Your BizBuddy score meets the threshold..."
+   └── "📋 Request Loan Assessment" → opens Pre-Qual Modal
+
+4. AVAILABLE LOAN PROGRAMS  [always visible]
+   Built from LOAN_CATALOG constant by country (MY/ID/PH):
+
+   MY:
+   - TEKUN Nasional         RM20,000   4%/yr  min_score:40
+   - Agrobank Agro Bumi     RM30,000   4%/yr  min_score:45
+   - PUNB PROSPER           RM50,000   4%/yr  min_score:55
+   - BSN Micro-i            RM50,000   5%/yr  min_score:65
+
+   ID:
+   - PNM Mekaar             Rp10 juta  0%     min_score:0
+   - BRI BPUM               Rp2.4 juta Hibah  min_score:0
+   - KUR Mikro              Rp50 juta  6%/yr  min_score:40
+   - KUR Kecil              Rp500 juta 6%/yr  min_score:60
+
+   PH:
+   - SB Corp CARES          ₱200,000   0%     min_score:0
+   - DTI KMME               ₱300,000   6%/yr  min_score:45
+   - SB Corp SULONG         ₱500,000   8%/yr  min_score:65
+   - Landbank LGSF          ₱5,000,000 7%/yr  min_score:75
+
+   Each card shows: name, amount, rate, description, "Apply →" link
+
+5. SCORE BREAKDOWN  [hidden if score = 0]
+   6 factors with animated progress bars:
+   ├── 📊 Transaction Consistency  /25  color: #00d4aa
+   ├── 💰 Revenue Volume           /20  color: #6c63ff
+   ├── 📅 Business Age             /15  color: #a29bfe
+   ├── 📋 Business Registration    /20  color: #ffd166
+   │   (SSM/NIB/DTI + Bank account)
+   ├── 🔢 Transaction Frequency    /10  color: #ff9f43
+   └── 💸 Expense Discipline       /10  color: #06d6a0
+   Data sourced from user.score_breakdown (set by WhatsApp bot)
+
+6. SCORE HISTORY CHART  [hidden if < 2 data points]
+   Line chart showing score over time (Chart.js)
+   Badge shows total change: "^ +N pts" / "↓ -N pts" / "no change"
+
+7. SALES ACTIVITY CHART
+   Bar chart with period toggle: 7 Days / 30 Days / All Time
+   Zero-value bars: grey. Non-zero: teal (#00d4aa)
+   Y-axis labeled with currency symbol
+
+8. LOAN READINESS ROADMAP
+   Progress bar (0–100%) + checklist:
+   ✅/⬜ Profile Created
+   ✅/⬜ First Sale Recorded
+   ✅/⬜ 10+ Transactions (shows N/10)
+   ✅/⬜ Business Bank Account
+   ✅/⬜ SSM Registration (or NIB/DTI by country)
+   ✅/⬜ Credit Score 60+
+   NEW USER: roadmap promoted above sales chart
+
+9. RECENT SALES  (last 8, reverse order)
+   Each row: item name | date 📸/💬 | amount
+   EMPTY STATE: rocket icon, "Let's get started!" + "Log First Sale via WhatsApp" CTA button
+
+10. CREDIT CERTIFICATE
+    ├── Title: "⭐ Credit Certificate"
+    ├── Score: N/100
+    ├── Stars: ⭐ to ⭐⭐⭐⭐⭐ based on score
+    │   ≥85 → ⭐⭐⭐⭐⭐  "Excellent - Highly Loan Ready"
+    │   ≥70 → ⭐⭐⭐⭐    "Good - Loan Ready"
+    │   ≥50 → ⭐⭐⭐      "Fair - In Progress"
+    │   >0  → ⭐⭐        "Needs Improvement"
+    │   0   → "-"         "Generate credit score via WhatsApp..."
+    └── Certificate ID: NC-{last4phone}-{YYYYMMDD}
+
+----------------------------------------------------------------
+PRE-QUALIFICATION MODAL  (opens on "Request Loan Assessment")
+----------------------------------------------------------------
+Summary grid:
+  - Credit Score: N/100 (green)
+  - Total Revenue: cur+amount
+  - Transactions: N
+  - Verified Sales: N% (photo receipts)
+
+Data shared with bank:
+  ✅ Business name & owner name
+  ✅ Credit score & breakdown
+  ✅ Revenue history & verification rate
+  ✅ BizBuddy certificate ID
+
+"Send to Partner Bank via WhatsApp" button → opens wa.me link
+with pre-filled message containing all the above data.
+
+Note: "Data protected under PDPA Malaysia. Bank contacts within 2-3 days."
+
+----------------------------------------------------------------
+FIRESTORE DATA READ
+----------------------------------------------------------------
+Collection: users/{phone}
+Fields used:
+  owner_name, business_name, product, country, user_state
+  credit_score, score_date, score_breakdown, score_history
+  sales[]  → {date, amount, item, source}
+  expenses[]
+  has_bank_account, has_ssm
+  bank_verified, ssm_verified
+  monthly_revenue, biz_age
+  language
+
+----------------------------------------------------------------
+STATE / SETTINGS (localStorage)
+----------------------------------------------------------------
+  nc-theme  → 'light' | 'dark' (default dark)
+  nc-lang   → 'en' | 'bm' (default en)
+
+----------------------------------------------------------------
+PWA FEATURES
+----------------------------------------------------------------
+- manifest.json linked
+- Service Worker registered (sw.js)
+  → SW update banner appears when new version available
+- "Add to Home Screen" install banner (beforeinstallprompt)
+- Pull-to-refresh (touchstart/touchmove/touchend, threshold 40px)
+
+----------------------------------------------------------------
+TECH STACK
+----------------------------------------------------------------
+- Firebase JS SDK v10.7.1 (ESM, from gstatic CDN)
+- Chart.js 4.4.0 (from jsdelivr CDN)
+- Fonts: Syne (headings, 400/600/700/800) + DM Sans (body)
+- No build step — plain HTML/JS/CSS
+- XSS: esc() function sanitizes all Firestore data before innerHTML
+
+----------------------------------------------------------------
+DESIGN TOKENS (CSS variables)
+----------------------------------------------------------------
+Dark (default):
+  --bg:       #0d1117
+  --surface:  #161b27
+  --surface2: #1e2537
+  --text:     #e8edf8
+  --muted:    #5a6785
+  --accent:   #00d4aa
+  --accent2:  #6c63ff
+  --green:    #06d6a0
+  --gold:     #ffd166
+  --warn:     #ff6b6b
+
+Light:
+  --bg:       #f0f4f8
+  --surface:  #ffffff
+  --surface2: #e8edf5
+  --text:     #1a2234
+  --accent:   #00b894
+  --accent2:  #5a52d5
+
+----------------------------------------------------------------
+BILINGUAL (EN / BM)
+----------------------------------------------------------------
+Toggle via drawer "🌐 Bahasa Melayu / English"
+All labels use data-i18n attributes + t('key') function
+Re-renders dynamic content on toggle (loadMobileView called again)
+Language stored in localStorage
+
+----------------------------------------------------------------
+KNOWN ISSUES / GAPS
+----------------------------------------------------------------
+- LOAN_CATALOG in app.js is a static local const (not from Firestore)
+  → diverges from loan_products Firestore collection used by bot
+  → should ideally read from same source
+
+- Loan program shown in "Available Loan Programs" section uses
+  min_score filter against user.credit_score only
+  (buildLoanRecommendations fn in app.js)
+
+- bank.html shares same app.js — bank view code is also in this file
+  (window.__BANK_PAGE__ flag separates them, but both loaded)
+
+================================================================
+END OF USER DASHBOARD FRONTEND OVERVIEW
+================================================================
