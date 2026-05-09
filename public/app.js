@@ -58,9 +58,10 @@ const db = getFirestore(fbApp);
 // ── BOT CONFIG (update BOT_PHONE to match your WhatsApp Business number) ──────
 const BOT_PHONE = '15551483471';
 const WA_LINKS = {
-  verify:    () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent('verify')}`,
-  loanMatch: () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent(t('loan_wa_msg'))}`,
-  logSale:   () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent('Hi BizBuddy! I want to log my first sale')}`,
+  verify:     () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent('verify')}`,
+  loanMatch:  () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent(t('loan_wa_msg'))}`,
+  logSale:    () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent('Hi BizBuddy! I want to log my first sale')}`,
+  logExpense: () => `https://wa.me/${BOT_PHONE}?text=${encodeURIComponent('Hi BizBuddy! I want to log an expense')}`,
 };
 
 // ── CLIENT-SIDE PARSE HELPERS (mirror credit.js) ─────────────────────────────
@@ -98,10 +99,16 @@ let currentUser = null;
 let allUsers = [];
 let salesChartInstance = null;
 let _salesPage = 0;
+let _recentPage = 0;
+let _activeRecentTab = 'sales';
+let _currentUserData = null;
+let currentMobileExpenses = [];
 const SALES_PER_PAGE = 6;
 let portfolioChartInstance = null;
 let revenueChartInstance = null;
 let scoreHistoryChartInstance = null;
+let sparklineChartInstance = null;
+let allApplications = [];
 
 // -- INIT --
 function showLoginScreen() {
@@ -135,17 +142,34 @@ window.handleBankLogin = async () => {
   if(err) err.style.display = 'none';
   const loginBtn = document.querySelector('.login-card .btn-primary');
   const code = document.getElementById('bank-code-input')?.value.trim();
-  if (code !== 'bank2026') {
-    if(err){ err.textContent = 'Invalid access code'; err.style.display = 'block'; }
+  if (!code) {
+    if(err){ err.textContent = 'Please enter access code'; err.style.display = 'block'; }
     return;
   }
   if(loginBtn){ loginBtn.classList.add('btn-loading'); loginBtn.textContent = 'Connecting...'; }
-  showApp('bank');
-  loadBankView();
+  try {
+    const resp = await fetch('/api/bank-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_code: code }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      if(err){ err.textContent = data.error || 'Invalid access code'; err.style.display = 'block'; }
+      if(loginBtn){ loginBtn.classList.remove('btn-loading'); loginBtn.textContent = 'Access Bank Portal ->'; }
+      return;
+    }
+    sessionStorage.setItem('bank_api_key', data.bank_key);
+    showApp('bank');
+    loadBankView();
+  } catch(e) {
+    if(err){ err.textContent = 'Connection error. Please try again.'; err.style.display = 'block'; }
+  }
   if(loginBtn){ loginBtn.classList.remove('btn-loading'); loginBtn.textContent = 'Access Bank Portal ->'; }
 };
 
 window.bankLogout = () => {
+  sessionStorage.removeItem('bank_api_key');
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   const inp = document.getElementById('bank-code-input');
@@ -176,7 +200,16 @@ window.handleLogin = async () => {
     } catch(e) { showError('Connection error. Please try again.'); loginBtn.classList.remove('btn-loading'); loginBtn.textContent='Access Dashboard ->'; }
   } else {
     const code = document.getElementById('bank-code-input').value.trim();
-    if (code !== 'bank2026') { showError('Invalid access code'); loginBtn.classList.remove('btn-loading'); loginBtn.textContent='Access Dashboard ->'; return; }
+    try {
+      const resp = await fetch('/api/bank-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_code: code }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { showError(data.error || 'Invalid access code'); loginBtn.classList.remove('btn-loading'); loginBtn.textContent='Access Dashboard ->'; return; }
+      sessionStorage.setItem('bank_api_key', data.bank_key);
+    } catch(e) { showError('Connection error. Please try again.'); loginBtn.classList.remove('btn-loading'); loginBtn.textContent='Access Dashboard ->'; return; }
     loginBtn.classList.remove('btn-loading'); loginBtn.textContent='Access Dashboard ->';
     showApp('bank');
     loadBankView();
@@ -334,10 +367,12 @@ async function loadMobileView(user) {
   if(db2) db2.textContent = user.business_name || '-';
 
   const sales = user.sales || [];
-  const total = sales.reduce((s,x) => s + (x.amount||0), 0);
+  const expenses = user.expenses || [];
+  currentMobileExpenses = expenses;
+  const total = sales.reduce((s,x) => s + (Number(x.amount)||0), 0);
   const count = sales.length;
-  const avg = count > 0 ? Math.round(total/count) : 0;
-  const best = count > 0 ? Math.max(...sales.map(s=>s.amount||0)) : 0;
+  const totalExpenses = expenses.reduce((s,x) => s + (Number(x.amount)||0), 0);
+  const netProfit = total - totalExpenses;
   const score = user.credit_score || 0;
 
   // Score arc - animated
@@ -373,18 +408,23 @@ async function loadMobileView(user) {
   else document.getElementById('stat-revenue').textContent = cur + '0';
   if (count > 0) animateCount('stat-txn', 0, count, 800, '', '');
   else document.getElementById('stat-txn').textContent = '0';
-  if (avg > 0) animateCount('stat-avg', 0, avg, 900, cur, '');
-  else document.getElementById('stat-avg').textContent = cur + '0';
-  if (best > 0) animateCount('stat-best', 0, best, 1000, cur, '');
-  else document.getElementById('stat-best').textContent = cur + '0';
+  if (totalExpenses > 0) animateCount('stat-expenses', 0, totalExpenses, 900, cur, '');
+  else document.getElementById('stat-expenses').textContent = cur + '0';
+  const profitEl = document.getElementById('stat-profit');
+  if (profitEl) {
+    profitEl.classList.toggle('positive', netProfit >= 0);
+    profitEl.classList.toggle('negative', netProfit < 0);
+    profitEl.textContent = (netProfit < 0 ? '-' : '') + cur + Math.abs(netProfit).toLocaleString();
+  }
 
   // Sync sections
-  buildSalesChart(sales);
+  buildSalesChart(sales, null, expenses);
   buildScoreBreakdown(user, sales);
-  buildGrowthTrends(sales);
+  buildGrowthTrends(sales, expenses);
   buildRoadmap(user, sales);
-  _salesPage = 0;
-  renderRecentSales(sales, 0);
+  _recentPage = 0;
+  _activeRecentTab = 'sales';
+  renderRecent(user, 'sales', 0);
   buildCertificate(user, score);
   buildScoreHistory(user);
   buildVerificationStatus(user);
@@ -417,33 +457,33 @@ window.switchChartPeriod = (period, btn) => {
   currentChartPeriod = period;
   document.querySelectorAll('.chart-tab').forEach(t=>t.classList.remove('active'));
   if(btn) btn.classList.add('active');
-  buildSalesChart(currentMobileSales, period);
+  buildSalesChart(currentMobileSales, period, currentMobileExpenses);
 };
 
-function buildSalesChart(sales, period) {
+function buildSalesChart(sales, period, expenses) {
   currentMobileSales = sales;
+  if (expenses !== undefined) currentMobileExpenses = expenses;
+  const exp = currentMobileExpenses || [];
   if(!period) period = currentChartPeriod;
   const ctx = document.getElementById('sales-chart').getContext('2d');
   if (salesChartInstance) salesChartInstance.destroy();
 
-  let dataPoints = [];
+  let salesPoints = [];
+  let expPoints = [];
   let labels = [];
 
   if (period === 'all' && sales.length > 0) {
-    // Group all sales by date
-    const dateMap = {};
-    sales.forEach(s => {
-      if(!s.date) return;
-      dateMap[s.date] = (dateMap[s.date]||0) + (s.amount||0);
-    });
-    const sortedDates = Object.keys(dateMap).sort();
-    // Show up to last 30 entries max for readability
-    const show = sortedDates.slice(-30);
-    show.forEach(d => {
+    const salesMap = {};
+    sales.forEach(s => { if(s.date) salesMap[s.date] = (salesMap[s.date]||0) + (s.amount||0); });
+    const expMap = {};
+    exp.forEach(e => { if(e.date) expMap[e.date] = (expMap[e.date]||0) + (e.amount||0); });
+    const sortedDates = Object.keys(salesMap).sort().slice(-30);
+    sortedDates.forEach(d => {
       labels.push(new Date(d+'T00:00:00').toLocaleDateString('en-MY',{month:'short',day:'numeric'}));
-      dataPoints.push(dateMap[d]);
+      salesPoints.push(salesMap[d] || 0);
+      expPoints.push(expMap[d] || 0);
     });
-    if(show.length === 0) { labels = ['No data']; dataPoints = [0]; }
+    if(sortedDates.length === 0) { labels = ['No data']; salesPoints = [0]; expPoints = [0]; }
   } else {
     const days = period === '30d' ? 30 : 7;
     for (let i=days-1; i>=0; i--) {
@@ -453,26 +493,45 @@ function buildSalesChart(sales, period) {
       labels.push(days <= 7
         ? d.toLocaleDateString('en-MY',{weekday:'short'})
         : d.toLocaleDateString('en-MY',{month:'short',day:'numeric'}));
-      const dayTotal = sales.filter(s=>s.date===dateStr).reduce((a,s)=>a+(s.amount||0),0);
-      dataPoints.push(dayTotal);
+      salesPoints.push(sales.filter(s=>s.date===dateStr).reduce((a,s)=>a+(s.amount||0),0));
+      expPoints.push(exp.filter(e=>e.date===dateStr).reduce((a,e)=>a+(e.amount||0),0));
     }
   }
 
+  const hasExpenses = expPoints.some(v => v > 0);
   salesChartInstance = new Chart(ctx, {
     type: 'bar',
     data: {
       labels,
-      datasets: [{
-        data: dataPoints,
-        backgroundColor: dataPoints.map(v => v > 0 ? 'rgba(0,212,170,0.6)' : 'rgba(90,103,133,0.2)'),
-        borderColor: dataPoints.map(v => v > 0 ? '#00d4aa' : 'transparent'),
-        borderWidth: 1,
-        borderRadius: 6,
-      }]
+      datasets: [
+        {
+          label: t('sales'),
+          data: salesPoints,
+          backgroundColor: salesPoints.map(v => v > 0 ? 'rgba(0,212,170,0.65)' : 'rgba(90,103,133,0.15)'),
+          borderColor: salesPoints.map(v => v > 0 ? '#00d4aa' : 'transparent'),
+          borderWidth: 1,
+          borderRadius: 4,
+        },
+        ...(hasExpenses ? [{
+          label: t('expenses'),
+          data: expPoints,
+          backgroundColor: expPoints.map(v => v > 0 ? 'rgba(255,107,107,0.55)' : 'rgba(90,103,133,0.08)'),
+          borderColor: expPoints.map(v => v > 0 ? '#ff6b6b' : 'transparent'),
+          borderWidth: 1,
+          borderRadius: 4,
+        }] : []),
+      ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: {
+          display: hasExpenses,
+          position: 'top',
+          align: 'end',
+          labels: { color: '#a0aec0', font: { size: 11 }, usePointStyle: true, boxWidth: 8, padding: 12 }
+        }
+      },
       scales: {
         x: { grid: { display: false }, ticks: { color: '#5a6785', font: { size: 10 }, maxRotation:45, autoSkip:true, maxTicksLimit:10 } },
         y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5a6785', font: { size: 11 }, callback: v => (currentUser ? getCur(currentUser) : 'RM')+v } }
@@ -507,30 +566,46 @@ function buildRoadmap(user, sales) {
   `).join('');
 }
 
-function renderRecentSales(sales, page = 0) {
-  const sorted = [...sales].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+function renderRecent(userData, tab, page) {
+  if (userData) _currentUserData = userData;
+  else userData = _currentUserData;
+  if (!userData) return;
+  if (tab !== undefined) _activeRecentTab = tab;
+  else tab = _activeRecentTab;
+  if (page !== undefined) _recentPage = page;
+  else page = _recentPage;
+
+  const items = tab === 'expenses' ? (userData.expenses || []) : (userData.sales || []);
+  const sorted = [...items].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const totalPages = Math.ceil(sorted.length / SALES_PER_PAGE);
-  const pageSales = sorted.slice(page * SALES_PER_PAGE, (page + 1) * SALES_PER_PAGE);
-  const cur = getCur(currentUser);
+  const pageItems = sorted.slice(page * SALES_PER_PAGE, (page + 1) * SALES_PER_PAGE);
+  const cur = getCur(userData);
+  const isExpense = tab === 'expenses';
 
-  document.getElementById('recent-count').textContent = t('records_count', { n: sales.length });
+  // Update tab buttons with counts
+  document.querySelectorAll('#recent-tabs .recent-tab').forEach(btn => {
+    const btnTab = btn.dataset.tab;
+    const cnt = btnTab === 'expenses' ? (userData.expenses||[]).length : (userData.sales||[]).length;
+    btn.textContent = t(btnTab === 'expenses' ? 'expenses_tab' : 'sales_tab') + ' (' + cnt + ')';
+    btn.classList.toggle('active', btnTab === tab);
+  });
 
-  const listHtml = pageSales.length === 0
+  const listHtml = pageItems.length === 0
     ? `<div class="empty-hero">
-        <div class="empty-hero-icon">🚀</div>
-        <h3>${t('empty_title')}</h3>
-        <p>${t('empty_desc')}</p>
-        <a href="${WA_LINKS.logSale()}" target="_blank" class="empty-hero-cta">
-          ${t('empty_cta')}
+        <div class="empty-hero-icon">${isExpense ? '💸' : '🚀'}</div>
+        <h3>${t(isExpense ? 'no_expenses_title' : 'empty_title')}</h3>
+        <p>${t(isExpense ? 'no_expenses_desc' : 'empty_desc')}</p>
+        <a href="${isExpense ? WA_LINKS.logExpense() : WA_LINKS.logSale()}" target="_blank" class="empty-hero-cta">
+          ${t(isExpense ? 'log_first_expense' : 'empty_cta')}
         </a>
       </div>`
-    : `<div class="recent-sales-list">${pageSales.map(s => `
+    : `<div class="recent-sales-list">${pageItems.map(item => `
         <div class="sale-row">
           <div class="sale-row-left">
-            <span class="sale-item-name">${esc(s.item || 'Sale')}</span>
-            <span class="sale-date">${esc(s.date || '')} ${s.source === 'screenshot' ? '📸' : '💬'}</span>
+            <span class="sale-item-name">${esc(item.item || (isExpense ? 'Expense' : 'Sale'))}</span>
+            <span class="sale-date">${esc(item.date || '')} ${item.source === 'screenshot' ? '📸' : '💬'}</span>
           </div>
-          <span class="sale-amount">${cur}${(s.amount || 0).toLocaleString()}</span>
+          <span class="sale-amount ${isExpense ? 'expense' : 'sale'}">${isExpense ? '-' : ''}${cur}${(Number(item.amount) || 0).toLocaleString()}</span>
         </div>`).join('')}
       </div>`;
 
@@ -546,9 +621,15 @@ function renderRecentSales(sales, page = 0) {
   if (container) container.innerHTML = listHtml + paginationHtml;
 }
 
+window.switchRecentTab = function(tab) {
+  _activeRecentTab = tab;
+  _recentPage = 0;
+  renderRecent(_currentUserData, tab, 0);
+};
+
 window.changeSalesPage = function(newPage) {
-  _salesPage = newPage;
-  renderRecentSales(currentUser?.sales || [], _salesPage);
+  _recentPage = newPage;
+  renderRecent(_currentUserData, _activeRecentTab, _recentPage);
 };
 
 function buildCertificate(user, score) {
@@ -726,6 +807,29 @@ const translations = {
     records_count: '{n} records',
     prev_page: '← Prev',
     next_page: 'Next →',
+    // stats
+    total_expenses: 'Total Expenses',
+    net_profit: 'Net Profit',
+    // recent activity tabs
+    recent_activity: 'Recent Activity',
+    sales_tab: 'Sales',
+    expenses_tab: 'Expenses',
+    no_expenses_title: 'No expenses yet',
+    no_expenses_desc: 'Log your expenses on WhatsApp to track profit margin and improve your credit score.',
+    log_first_expense: 'Log Expense via WhatsApp',
+    no_sales_yet: 'No sales yet',
+    // sales / expenses chart
+    sales: 'Sales',
+    expenses: 'Expenses',
+    // score breakdown next action
+    action_consistency: 'Log sales daily — consistency drives the biggest score gains.',
+    action_revenue: 'Log all your sales (not just big ones) so revenue history reflects reality.',
+    action_age: 'Keep using BizBuddy — your business age grows automatically over time.',
+    action_formal: 'Send your SSM cert + bank statement on WhatsApp to verify and unlock +20 pts.',
+    action_volume: 'Aim for 30+ recorded sales — more records strengthen your credit profile.',
+    action_expenses: 'Start logging business expenses too — banks reward expense discipline.',
+    next_best_action: 'Next best move',
+    score_excellent: "Excellent score — you're fully loan-ready.",
   },
   bm: {
     credit_readiness: 'Skor Kesediaan Kredit',
@@ -872,6 +976,29 @@ const translations = {
     records_count: '{n} rekod',
     prev_page: '← Sebelum',
     next_page: 'Seterus →',
+    // stats
+    total_expenses: 'Jumlah Belanja',
+    net_profit: 'Keuntungan Bersih',
+    // recent activity tabs
+    recent_activity: 'Aktiviti Terkini',
+    sales_tab: 'Jualan',
+    expenses_tab: 'Belanja',
+    no_expenses_title: 'Belum ada belanja',
+    no_expenses_desc: 'Rekod belanja perniagaan di WhatsApp untuk jejak margin keuntungan dan tingkatkan skor kredit.',
+    log_first_expense: 'Rekod Belanja via WhatsApp',
+    no_sales_yet: 'Belum ada jualan',
+    // sales / expenses chart
+    sales: 'Jualan',
+    expenses: 'Belanja',
+    // score breakdown next action
+    action_consistency: 'Rekod jualan setiap hari — konsistensi naikkan skor paling banyak.',
+    action_revenue: 'Rekod semua jualan (bukan yang besar saja) supaya sejarah hasil betul-betul terkesan.',
+    action_age: 'Terus guna BizBuddy — umur perniagaan akan naik secara automatik.',
+    action_formal: 'Hantar sijil SSM + penyata bank ke WhatsApp untuk sahkan dan dapat +20 mata.',
+    action_volume: 'Sasarkan 30+ rekod jualan — lebih banyak rekod kuatkan profil kredit.',
+    action_expenses: 'Mula rekod belanja perniagaan juga — bank hargai disiplin kewangan.',
+    next_best_action: 'Langkah seterusnya',
+    score_excellent: 'Skor cemerlang — awak sedia sepenuhnya untuk pinjaman.',
   }
 };
 
@@ -987,6 +1114,27 @@ function buildScoreBreakdown(user, sales) {
     },
   ];
 
+  // Find weakest factor by % of max
+  let weakest = null;
+  let weakestPct = 101;
+  for (const f of factors) {
+    const pct = f.max > 0 ? (f.value / f.max) * 100 : 0;
+    if (pct < weakestPct) { weakestPct = pct; weakest = f; }
+  }
+
+  const actionKeys = {
+    txn_consistency:  'action_consistency',
+    rev_volume:       'action_revenue',
+    biz_age:          'action_age',
+    biz_registration: 'action_formal',
+    txn_frequency:    'action_volume',
+    expense_discipline: 'action_expenses',
+  };
+
+  const ctaHtml = (weakest && score < 80)
+    ? `<div class="next-action"><div class="next-action-label">⚡ ${t('next_best_action')}</div><div class="next-action-text">${t(actionKeys[weakest.key] || weakest.key)}</div></div>`
+    : `<div class="next-action excellent">🎉 ${t('score_excellent')}</div>`;
+
   container.innerHTML = factors.map(f => {
     const pct = f.max > 0 ? Math.round((f.value / f.max) * 100) : 0;
     return `
@@ -1003,7 +1151,7 @@ function buildScoreBreakdown(user, sales) {
         <div class="breakdown-value" style="color:${f.color};">${f.value}/${f.max}</div>
       </div>
     </div>`;
-  }).join('');
+  }).join('') + ctaHtml;
 
   // Animate bars
   setTimeout(() => {
@@ -1198,6 +1346,37 @@ function formatTimeAgo(ts) {
     return t('time_days_ago', { n: Math.floor(diff/86400) });
 }
 
+function formatDate(ts) {
+    if (!ts) return '-';
+    const ms = ts?.toMillis?.() || (typeof ts === 'number' ? ts : Date.parse(ts));
+    if (!ms) return '-';
+    return new Date(ms).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function scoreTier(score) {
+    if (score >= 80) return { label: 'Excellent', color: '#06d6a0' };
+    if (score >= 70) return { label: 'Good', color: '#00d4aa' };
+    if (score >= 50) return { label: 'Fair', color: '#ffd166' };
+    if (score > 0)   return { label: 'Building', color: '#ff6b6b' };
+    return { label: 'N/A', color: '#5a6785' };
+}
+function initials(name) {
+    if (!name) return '?';
+    return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
+function showToast(msg, type = 'success') {
+    let toast = document.getElementById('bb-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'bb-toast';
+        toast.className = 'toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.className = `toast ${type}`;
+    requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('show')));
+    setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
 function buildApplicationsList(apps, cur) {
     const list = document.getElementById('applications-list');
     const badge = document.getElementById('applications-badge');
@@ -1248,29 +1427,33 @@ function buildApplicationsList(apps, cur) {
 // ==============================================
 // -- GROWTH / TREND INDICATORS --
 // ==============================================
-function buildGrowthTrends(sales) {
+function buildGrowthTrends(sales, expenses) {
+  const exp = expenses || [];
   const now = new Date();
-  const thisWeekSales = sales.filter(s => {
-    if (!s.date) return false;
-    const d = new Date(s.date + 'T00:00:00');
-    const diff = (now - d) / (1000*60*60*24);
-    return diff >= 0 && diff < 7;
-  });
-  const lastWeekSales = sales.filter(s => {
-    if (!s.date) return false;
-    const d = new Date(s.date + 'T00:00:00');
-    const diff = (now - d) / (1000*60*60*24);
-    return diff >= 7 && diff < 14;
-  });
+
+  function weekFilter(items, weekOffset) {
+    return items.filter(x => {
+      if (!x.date) return false;
+      const diff = (now - new Date(x.date + 'T00:00:00')) / (1000*60*60*24);
+      return diff >= weekOffset * 7 && diff < (weekOffset + 1) * 7;
+    });
+  }
+
+  const thisWeekSales = weekFilter(sales, 0);
+  const lastWeekSales = weekFilter(sales, 1);
+  const thisWeekExp   = weekFilter(exp, 0);
+  const lastWeekExp   = weekFilter(exp, 1);
 
   const thisRev = thisWeekSales.reduce((a,x) => a + (x.amount||0), 0);
   const lastRev = lastWeekSales.reduce((a,x) => a + (x.amount||0), 0);
   const thisTxn = thisWeekSales.length;
   const lastTxn = lastWeekSales.length;
-  const thisAvg = thisTxn > 0 ? Math.round(thisRev/thisTxn) : 0;
-  const lastAvg = lastTxn > 0 ? Math.round(lastRev/lastTxn) : 0;
+  const thisExpTotal = thisWeekExp.reduce((a,x) => a + (x.amount||0), 0);
+  const lastExpTotal = lastWeekExp.reduce((a,x) => a + (x.amount||0), 0);
+  const thisProfit = thisRev - thisExpTotal;
+  const lastProfit = lastRev - lastExpTotal;
 
-  function trendHTML(current, previous, prefix) {
+  function trendHTML(current, previous) {
     if (previous === 0 && current === 0) return `<span class="trend-neutral">${t('no_change')}</span>`;
     if (previous === 0 && current > 0) return `<span class="trend-up">^ ${t('vs_last_week')}</span>`;
     const pct = Math.round(((current - previous) / previous) * 100);
@@ -1281,18 +1464,13 @@ function buildGrowthTrends(sales) {
 
   const tRev = document.getElementById('trend-revenue');
   const tTxn = document.getElementById('trend-txn');
-  const tAvg = document.getElementById('trend-avg');
-  const tBest = document.getElementById('trend-best');
+  const tExp = document.getElementById('trend-expenses');
+  const tPrf = document.getElementById('trend-profit');
 
-  if (tRev) tRev.innerHTML = trendHTML(thisRev, lastRev, getCur(currentUser));
-  if (tTxn) tTxn.innerHTML = trendHTML(thisTxn, lastTxn, '');
-  if (tAvg) tAvg.innerHTML = trendHTML(thisAvg, lastAvg, getCur(currentUser));
-  // Best sale doesn't have a weekly trend, show total instead
-  if (tBest && sales.length > 0) {
-    const thisBest = thisWeekSales.length > 0 ? Math.max(...thisWeekSales.map(s=>s.amount||0)) : 0;
-    const lastBest = lastWeekSales.length > 0 ? Math.max(...lastWeekSales.map(s=>s.amount||0)) : 0;
-    tBest.innerHTML = trendHTML(thisBest, lastBest, getCur(currentUser));
-  }
+  if (tRev) tRev.innerHTML = trendHTML(thisRev, lastRev);
+  if (tTxn) tTxn.innerHTML = trendHTML(thisTxn, lastTxn);
+  if (tExp) tExp.innerHTML = trendHTML(thisExpTotal, lastExpTotal);
+  if (tPrf) tPrf.innerHTML = trendHTML(thisProfit, lastProfit);
 }
 
 // ==============================================
@@ -1469,14 +1647,20 @@ function buildImpactMetrics(users) {
 // -- BANK VIEW --
 async function loadBankView() {
   document.getElementById('user-badge').textContent = currentLang === 'bm' ? 'Portal Bank' : 'Bank Portal';
-  // Show loading state
   const tbody = document.getElementById('msme-table-body');
   if(tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#5a6785;padding:32px;"><div class="loader-ring" style="margin:0 auto 12px;width:28px;height:28px;border-width:2px;"></div>Loading portfolio data...</td></tr>';
   try {
-    const snap = await getDocs(collection(db, 'users'));
+    const [usersSnap, appsSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      getDocs(collection(db, 'loan_applications')),
+    ]);
     allUsers = [];
-    snap.forEach(d => allUsers.push({ ...d.data(), phone: d.id }));
+    usersSnap.forEach(d => allUsers.push({ ...d.data(), phone: d.id }));
+    allApplications = [];
+    appsSnap.forEach(d => allApplications.push({ id: d.id, ...d.data() }));
+    allApplications.sort((a, b) => (b.submitted_at?.toMillis?.() || 0) - (a.submitted_at?.toMillis?.() || 0));
     renderBankView(allUsers);
+    renderLoanApplications(allApplications);
     updateLastUpdated();
   } catch(e) {
     console.error(e);
@@ -1661,31 +1845,189 @@ function renderBankView(users) {
     }
   });
 
-  // Loan pipeline
-  const loanReady_users = users.filter(u=>(u.credit_score||0)>=70);
-  const pipeline = document.getElementById('loan-pipeline');
-  if (loanReady_users.length === 0) {
-    pipeline.innerHTML = '<div class="empty-state"><div>📋</div><p>No loan-ready MSMEs yet. MSMEs need score 70+ to appear here.</p></div>';
-  } else {
-    pipeline.innerHTML = loanReady_users.map(u => {
-      const uRev = (u.sales||[]).reduce((a,x)=>a+(x.amount||0),0);
-      return `<div style="background:var(--surface2);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <div style="font-size:13px;font-weight:500;">${esc(u.owner_name)} · ${esc(u.business_name)}</div>
-          <div style="font-size:11px;color:#5a6785;margin-top:2px;">${esc(u.product)} · ${getCur(u)}${uRev.toLocaleString()} recorded</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:#06d6a0;">${u.credit_score}</div>
-          <div style="font-size:10px;color:#5a6785;">score</div>
-        </div>
-      </div>`;
-    }).join('');
-  }
   // Draw Malaysia map
   setTimeout(() => drawMalaysiaMap(users), 100);
   // Impact Metrics
   buildImpactMetrics(users);
 }
+
+// -- LOAN APPLICATIONS PIPELINE --
+function renderLoanApplications(apps) {
+  const avatarColors = ['#00d4aa','#6c63ff','#ff6b6b','#ffd166','#06d6a0','#ff9f43','#a29bfe','#fd79a8','#00b894','#e17055'];
+  const pipeline = document.getElementById('loan-pipeline');
+  if (!pipeline) return;
+  if (apps.length === 0) {
+    pipeline.innerHTML = '<div class="empty-state"><div>📋</div><p>No loan applications submitted yet.</p></div>';
+    return;
+  }
+  pipeline.innerHTML = apps.map((app, idx) => {
+    const rawStatus = app.status || 'pending_review';
+    const statusCls = rawStatus === 'pending_review' ? 'status-pending' : `status-${rawStatus}`;
+    const statusText = { pending_review:'⏳ Pending', approved:'✅ Approved', rejected:'❌ Rejected', needs_info:'📝 More Info' }[rawStatus] || '⏳ Pending';
+    const color = avatarColors[idx % avatarColors.length];
+    const ini = initials(app.user_name || '?');
+    const amt = app.amount ? `RM ${Number(app.amount).toLocaleString()}` : '-';
+    const score = app.provisional_score;
+    const tier = (typeof score === 'number') ? scoreTier(score) : { color: '#5a6785' };
+    return `<div class="app-pipeline-row" onclick="openApplicationReview('${esc(app.id)}')">
+      <div class="app-pipeline-avatar" style="background:${color};">${ini}</div>
+      <div class="app-pipeline-info">
+        <div class="app-pipeline-name">${esc(app.user_name||'Unknown')}</div>
+        <div class="app-pipeline-sub">${esc(app.product_name||'Loan')} · ${esc(app.bank_name||'-')}</div>
+        <div class="app-pipeline-sub">${formatDate(app.submitted_at)}</div>
+      </div>
+      <div class="app-pipeline-right">
+        <div class="app-pipeline-amount">${amt}</div>
+        <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:${tier.color};margin:2px 0;">${score != null ? score : '-'}</div>
+        <div class="status-pill ${statusCls}" style="font-size:10px;padding:2px 8px;display:inline-block;margin-top:2px;">${statusText}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.openApplicationReview = (appId) => {
+  const app = allApplications.find(a => a.id === appId);
+  if (!app) return;
+  const content = document.getElementById('review-modal-content');
+  if (!content) return;
+  const score = app.provisional_score || 0;
+  const tier = scoreTier(score);
+  const currentStatus = app.status || 'pending_review';
+  const isPending = currentStatus === 'pending_review';
+  const factorLabelMap = {
+    consistency:'Transaction Consistency', revenue:'Revenue Strength',
+    age:'Business Age', formalization:'Formalization',
+    volume:'Record Volume', expenses:'Expense Discipline',
+  };
+  const factorMaxMap = { consistency:25, revenue:20, age:15, formalization:20, volume:10, expenses:10 };
+  const bd = app.score_breakdown && typeof app.score_breakdown === 'object' ? app.score_breakdown : {};
+  const hasBd = Object.keys(bd).length > 0;
+  const reasoningHtml = hasBd
+    ? Object.entries(bd).map(([key, val]) => {
+        const maxScore = factorMaxMap[key] || 20;
+        const pct = Math.round((val / maxScore) * 100);
+        const barColor = pct >= 70 ? '#06d6a0' : pct >= 40 ? '#ffd166' : '#ff6b6b';
+        return `<div class="review-factor">
+          <div class="review-factor-label">${factorLabelMap[key]||key}</div>
+          <div class="review-factor-bar-bg"><div class="review-factor-fill" style="width:${pct}%;background:${barColor};"></div></div>
+          <div class="review-factor-score" style="color:${barColor};">${val}/${maxScore}</div>
+        </div>`;
+      }).join('')
+    : `<div style="color:var(--muted);font-size:12px;">${app.score_reasoning || 'No score breakdown available.'}</div>`;
+  const docsHtml = (app.documents||[]).length > 0
+    ? app.documents.map(d => `<div class="review-doc-item">📄 <span>${esc(d)}</span></div>`).join('')
+    : '<div style="color:var(--muted);font-size:12px;">No documents attached.</div>';
+  const expressHtml = app.express_loan_data
+    ? `<div class="review-section"><div class="review-section-title">Express Loan Details</div>${Object.entries(app.express_loan_data).map(([k,v])=>`<div class="review-factor"><div class="review-factor-label" style="color:var(--text);">${esc(k)}</div><div style="font-size:12px;">${esc(String(v))}</div></div>`).join('')}</div>` : '';
+  const bannerColors = { pending_review:'rgba(255,209,102,0.08)', approved:'rgba(6,214,160,0.1)', rejected:'rgba(255,107,107,0.1)', needs_info:'rgba(108,99,255,0.1)' };
+  const bannerTexts = { pending_review:'⏳ Pending Review', approved:'✅ Approved', rejected:'❌ Rejected', needs_info:'📝 More Info Requested' };
+  const disAttr = isPending ? '' : 'disabled';
+  content.innerHTML = `
+    <div style="margin-bottom:20px;">
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;">${esc(app.user_name||'Applicant')}</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:2px;">${esc(app.product_name||'-')} · ${esc(app.bank_name||'-')}</div>
+    </div>
+    <div style="background:${bannerColors[currentStatus]||bannerColors.pending_review};border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;margin-bottom:16px;">${bannerTexts[currentStatus]||bannerTexts.pending_review}</div>
+    <div class="modal-stats" style="grid-template-columns:1fr 1fr 1fr 1fr;margin-bottom:20px;">
+      <div class="modal-stat"><div class="modal-stat-val" style="color:${tier.color};">${score||'N/A'}</div><div class="modal-stat-label">Credit Score</div></div>
+      <div class="modal-stat"><div class="modal-stat-val">RM ${Number(app.amount||0).toLocaleString()}</div><div class="modal-stat-label">Amount</div></div>
+      <div class="modal-stat"><div class="modal-stat-val" style="font-size:14px;">${esc(app.purpose||'-')}</div><div class="modal-stat-label">Purpose</div></div>
+      <div class="modal-stat"><div class="modal-stat-val" style="font-size:13px;">${formatDate(app.submitted_at)}</div><div class="modal-stat-label">Submitted</div></div>
+    </div>
+    <div class="review-section"><div class="review-section-title">Score Breakdown</div>${reasoningHtml}</div>
+    <div class="review-section"><div class="review-section-title">Documents</div>${docsHtml}</div>
+    ${expressHtml}
+    ${app.reviewer_notes ? `<div class="review-section"><div class="review-section-title">Reviewer Notes</div><div style="font-size:13px;background:var(--surface2);border-radius:8px;padding:10px 14px;">${esc(app.reviewer_notes)}</div></div>` : ''}
+    <div class="review-actions">
+      <button class="review-btn approve" onclick="reviewApplication('${esc(app.id)}','approved')" ${disAttr}>✅ Approve</button>
+      <button class="review-btn reject" onclick="reviewApplication('${esc(app.id)}','rejected')" ${disAttr}>❌ Reject</button>
+      <button class="review-btn info" onclick="toggleReviewNotes()" id="review-info-btn" ${disAttr}>📝 Request Info</button>
+    </div>
+    <div class="review-notes-area" id="review-notes-area">
+      <textarea id="review-notes-input" placeholder="Describe what additional information is needed..."></textarea>
+      <button class="review-notes-confirm" onclick="reviewApplicationWithNote('${esc(app.id)}')">Send Request →</button>
+    </div>`;
+  document.getElementById('app-review-modal').classList.add('open');
+};
+
+window.closeApplicationReview = () => {
+  document.getElementById('app-review-modal').classList.remove('open');
+};
+document.getElementById('app-review-modal')?.addEventListener('click', e => {
+  if (e.target === document.getElementById('app-review-modal')) window.closeApplicationReview();
+});
+
+window.toggleReviewNotes = () => {
+  const area = document.getElementById('review-notes-area');
+  if (area) area.style.display = area.style.display === 'block' ? 'none' : 'block';
+};
+
+window.reviewApplication = async (appId, status) => {
+  const bankKey = sessionStorage.getItem('bank_api_key');
+  if (!bankKey) { showToast('Session expired. Please log in again.', 'error'); return; }
+  const allBtns = document.querySelectorAll('.review-btn');
+  allBtns.forEach(b => { b.disabled = true; });
+  try {
+    const res = await fetch('/notify_user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bank-key': bankKey },
+      body: JSON.stringify({ application_id: appId, status }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const app = allApplications.find(a => a.id === appId);
+    if (app) app.status = status;
+    showToast(status === 'approved' ? '✅ Application approved!' : '❌ Application rejected.', status === 'approved' ? 'success' : 'error');
+    window.closeApplicationReview();
+    renderLoanApplications(allApplications);
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+    allBtns.forEach(b => { b.disabled = false; });
+  }
+};
+
+window.reviewApplicationWithNote = async (appId) => {
+  const bankKey = sessionStorage.getItem('bank_api_key');
+  if (!bankKey) { showToast('Session expired. Please log in again.', 'error'); return; }
+  const notes = document.getElementById('review-notes-input')?.value.trim();
+  if (!notes) { showToast('Please enter a note first.', 'info'); return; }
+  const confirmBtn = document.querySelector('.review-notes-confirm');
+  if (confirmBtn) { confirmBtn.disabled = true; }
+  try {
+    const res = await fetch('/notify_user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bank-key': bankKey },
+      body: JSON.stringify({ application_id: appId, status: 'needs_info', reviewer_notes: notes }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const app = allApplications.find(a => a.id === appId);
+    if (app) { app.status = 'needs_info'; app.reviewer_notes = notes; }
+    showToast('📝 Info request sent!', 'info');
+    window.closeApplicationReview();
+    renderLoanApplications(allApplications);
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+};
+
+window.refreshLoanPipeline = async () => {
+  const btn = document.getElementById('pipeline-refresh-btn');
+  if (btn) { btn.classList.add('btn-loading'); btn.disabled = true; }
+  try {
+    const snap = await getDocs(collection(db, 'loan_applications'));
+    allApplications = [];
+    snap.forEach(d => allApplications.push({ id: d.id, ...d.data() }));
+    allApplications.sort((a, b) => (b.submitted_at?.toMillis?.() || 0) - (a.submitted_at?.toMillis?.() || 0));
+    renderLoanApplications(allApplications);
+    showToast('Pipeline refreshed', 'success');
+  } catch(e) {
+    showToast('Refresh failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.classList.remove('btn-loading'); btn.disabled = false; }
+  }
+};
 
 // Allow Enter key on inputs
 document.getElementById('phone-input')?.addEventListener('keydown', e => { if(e.key==='Enter') window.handleLogin(); });
@@ -1726,6 +2068,47 @@ window.openModal = (phone) => {
     : '<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px;">No sales recorded yet</div>';
 
   document.getElementById('modal-phone-row').textContent = `📱 WhatsApp: +${u.phone}`;
+
+  // Verification badges
+  const badgesEl = document.getElementById('modal-verify-badges');
+  if (badgesEl) {
+    const ssmBadge = u.ssm_verified
+      ? `<span class="verify-badge verified">✓ SSM Verified</span>`
+      : `<span class="verify-badge unverified">SSM Unverified</span>`;
+    const bankBadge = u.bank_verified
+      ? `<span class="verify-badge verified">✓ Bank Verified</span>`
+      : `<span class="verify-badge unverified">Bank Unverified</span>`;
+    badgesEl.innerHTML = ssmBadge + bankBadge;
+  }
+
+  // Score sparkline
+  const scoreHistory = u.score_history || [];
+  const sparklineWrap = document.getElementById('modal-sparkline-wrap');
+  if (sparklineWrap) {
+    if (scoreHistory.length >= 2) {
+      sparklineWrap.style.display = 'block';
+      if (sparklineChartInstance) { sparklineChartInstance.destroy(); sparklineChartInstance = null; }
+      const sCtx = document.getElementById('modal-sparkline').getContext('2d');
+      sparklineChartInstance = new Chart(sCtx, {
+        type: 'line',
+        data: {
+          labels: scoreHistory.map(h => h.date || ''),
+          datasets: [{ data: scoreHistory.map(h => h.score || 0), borderColor: '#00d4aa', backgroundColor: 'rgba(0,212,170,0.08)', borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#00d4aa', fill: true, tension: 0.4 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false },
+            y: { display: true, min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5a6785', font: { size: 10 }, stepSize: 25 } }
+          }
+        }
+      });
+    } else {
+      sparklineWrap.style.display = 'none';
+    }
+  }
+
   document.getElementById('msme-modal').classList.add('open');
 };
 

@@ -10,6 +10,8 @@ node_modules/
 serviceAccountKey.json
 *credentials*.json
 firebase-adminsdk*.json
+firebase-base64.txt
+service-account*.json
 
 # WhatsApp web (old library artifacts)
 .wwebjs_auth/
@@ -30,3 +32,18 @@ Thumbs.db
 # Build artifacts
 dist/
 build/
+
+# Claude Code internal
+.claude/
+
+# Internal audit/strategy docs — not for repo
+ALIGNMENT_AUDIT.md
+SYSTEM_AUDIT.txt
+
+# Windows junk
+desktop.ini
+
+bizbuddy_bot.txt
+SYSTEM_AUDIT.txt
+ALIGNMENT_AUDIT.md
+user_dashboard_frontend.txt

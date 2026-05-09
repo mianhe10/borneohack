@@ -93,8 +93,31 @@ app.post('/webhook', (req, res) => {
     }
 });
 
+// Bank portal session — validates access code, returns API key for x-bank-key header
+app.post('/api/bank-session', (req, res) => {
+    const { access_code } = req.body;
+    if (access_code !== 'bank2026') {
+        return res.status(401).json({ error: 'Invalid access code' });
+    }
+    if (!process.env.BANK_API_KEY) {
+        console.error('[bank-session] BANK_API_KEY env var not set');
+        return res.status(500).json({ error: 'Server misconfigured' });
+    }
+    res.json({ ok: true, bank_key: process.env.BANK_API_KEY });
+});
+
 // Bank portal → notify user of application status change
 app.post('/notify_user', async (req, res) => {
+    const providedKey = req.headers['x-bank-key'];
+    const expectedKey = process.env.BANK_API_KEY;
+    if (!expectedKey) {
+        console.error('[notify_user] BANK_API_KEY env var not set');
+        return res.status(500).json({ error: 'Server misconfigured' });
+    }
+    if (providedKey !== expectedKey) {
+        console.warn('[notify_user] unauthorized attempt from', req.ip);
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
     try {
         const { application_id, status, reviewer_notes } = req.body;
         if (!application_id || !status) return res.status(400).json({ error: 'Missing application_id or status' });

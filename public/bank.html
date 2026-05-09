@@ -204,7 +204,10 @@
         </div>
       </div>
       <div class="desk-card">
-        <h3>🎯 <span data-i18n="loan_pipeline">Loan Pipeline</span></h3>
+        <h3 style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <span>📋 Loan Applications</span>
+          <button onclick="refreshLoanPipeline()" class="refresh-btn" id="pipeline-refresh-btn" style="font-size:11px;padding:5px 10px;">↻ Refresh</button>
+        </h3>
         <div id="loan-pipeline"></div>
       </div>
     </div>
@@ -291,9 +294,22 @@
         <div class="modal-stat-label">Loan Status</div>
       </div>
     </div>
-    <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:10px;">Recent Sales</div>
+    <div id="modal-verify-badges" class="verify-badges"></div>
+    <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin:16px 0 10px;">Recent Sales</div>
     <div id="modal-sales"></div>
     <div id="modal-phone-row" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);font-size:12px;color:var(--muted);"></div>
+    <div id="modal-sparkline-wrap" class="sparkline-wrap" style="display:none;">
+      <div class="sparkline-label">Score History</div>
+      <div style="height:70px;position:relative;"><canvas id="modal-sparkline"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- REVIEW APPLICATION MODAL -->
+<div class="modal-overlay" id="app-review-modal">
+  <div class="modal-box" style="max-width:580px;">
+    <button class="modal-close" onclick="closeApplicationReview()">✕ Close</button>
+    <div id="review-modal-content"></div>
   </div>
 </div>
 

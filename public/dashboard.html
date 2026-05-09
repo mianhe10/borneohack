@@ -143,16 +143,16 @@
           <div class="stat-trend" id="trend-txn"></div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon">📈</div>
-          <div class="stat-value" id="stat-avg">RM-</div>
-          <div class="stat-label" data-i18n="avg_per_sale">Avg per Sale</div>
-          <div class="stat-trend" id="trend-avg"></div>
+          <div class="stat-icon">💸</div>
+          <div class="stat-value expense" id="stat-expenses">RM-</div>
+          <div class="stat-label" data-i18n="total_expenses">Total Expenses</div>
+          <div class="stat-trend" id="trend-expenses"></div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon">🏆</div>
-          <div class="stat-value" id="stat-best">RM-</div>
-          <div class="stat-label" data-i18n="best_sale">Best Sale</div>
-          <div class="stat-trend" id="trend-best"></div>
+          <div class="stat-icon">📈</div>
+          <div class="stat-value" id="stat-profit">RM-</div>
+          <div class="stat-label" data-i18n="net_profit">Net Profit</div>
+          <div class="stat-trend" id="trend-profit"></div>
         </div>
       </div>
 
@@ -242,11 +242,14 @@
         </div>
       </div>
 
-      <!-- RECENT SALES -->
+      <!-- RECENT ACTIVITY -->
       <div class="bb-card recent-sales-card grid-col-4 fade-up fade-up-5">
         <div class="bb-card-header">
-          <div class="bb-card-title" data-i18n="recent_sales">Recent Sales</div>
-          <div class="bb-card-badge" id="recent-count">0 records</div>
+          <div class="bb-card-title" data-i18n="recent_activity">Recent Activity</div>
+          <div class="recent-tabs" id="recent-tabs">
+            <button class="recent-tab active" data-tab="sales" onclick="window.switchRecentTab('sales')">Sales</button>
+            <button class="recent-tab" data-tab="expenses" onclick="window.switchRecentTab('expenses')">Expenses</button>
+          </div>
         </div>
         <div id="recent-sales-container"></div>
       </div>
