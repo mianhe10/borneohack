@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="theme-color" content="#0d1117"/>
+    <link rel="manifest" href="/manifest.json"/>
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+    <meta name="apple-mobile-web-app-title" content="BizBuddy"/>
+    <title>BizBuddy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link rel="preconnect" href="https://www.gstatic.com"/>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net"/>
+    <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- INSTALL BANNER -->
+<div id="install-banner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:1000;background:var(--surface,#161b27);border:1px solid rgba(0,212,170,0.3);border-radius:16px;padding:14px 20px;display:none;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.4);min-width:280px;max-width:360px;">
+    <span style="font-size:20px;">📱</span>
+    <span style="font-size:13px;color:#e8edf8;flex:1;">Add BizBuddy to Home Screen</span>
+    <button id="install-btn" style="background:linear-gradient(135deg,#00d4aa,#6c63ff);border:none;border-radius:8px;padding:7px 14px;color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Install</button>
+    <button id="install-dismiss" style="background:transparent;border:none;color:#5a6785;cursor:pointer;font-size:16px;line-height:1;padding:4px;">✕</button>
+</div>
+
+<!-- UPDATE BANNER -->
+<div id="update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:1001;background:linear-gradient(135deg,#00d4aa,#6c63ff);padding:10px 20px;display:none;align-items:center;justify-content:center;gap:12px;">
+    <span style="font-size:13px;color:#fff;font-weight:600;">🆕 New version available</span>
+    <button onclick="location.reload()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);border-radius:6px;padding:5px 14px;color:#fff;font-weight:700;font-size:12px;cursor:pointer;">Refresh</button>
+</div>
+
+<!-- LOADING -->
+<div id="loading" style="display:none;">
+    <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;background:linear-gradient(135deg,#00d4aa,#6c63ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">BizBuddy</div>
+    <div class="loader-ring"></div>
+    <div style="font-size:13px;color:#5a6785;">Preparing site...</div>
+</div>
+
+    <nav class="topnav">
+        <div class="nav-logo">BizBuddy</div>
+        <div class="nav-right">
+            <div class="view-toggle" style="display:none;"></div>
+            <button class="nav-menu-btn" title="Menu">☰</button>
+        </div>
+    </nav>
+
+    <div class="nav-drawer-overlay">
+        <div class="nav-drawer">
+            <div class="nav-drawer-header">
+                <h3>Menu</h3>
+                <button class="nav-drawer-close">✕</button>
+            </div>
+            <div style="padding:12px 14px;background:var(--surface2);border-radius:12px;margin-bottom:8px;">
+                <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;">Guest</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">Welcome</div>
+            </div>
+            <button class="drawer-item">↻ Refresh Data</button>
+            <button class="drawer-item">🌐 Bahasa Melayu</button>
+            <div class="drawer-divider"></div>
+            <button class="drawer-item danger">⏻ Logout</button>
+        </div>
+    </div>
+
+    <main style="padding:28px;max-width:920px;margin:32px auto;">
+        <section class="login-card" style="max-width:760px;margin:0 auto;text-align:center;">
+            <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;margin-bottom:8px;">Welcome to BizBuddy</div>
+            <p style="color:var(--muted);margin-bottom:18px;">Your financial identity and loan readiness, simplified. Sign in to view a personalized dashboard and loan matches.</p>
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+                <a href="index.html" class="btn-primary" style="max-width:220px;">Sign in to Dashboard</a>
+                </div>
+        </section>
+
+        <section style="margin-top:28px;">
+            <div class="chart-card">
+                <h3>Available Loans</h3>
+                <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px;">
+                    <div class="stat-card" style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <div style="font-weight:700;">Small Business Loan — RM10,000</div>
+                            <div style="font-size:13px;color:var(--muted);">Flexible repayment for working capital</div>
+                        </div>
+                        <a href="https://wa.me/" class="share-btn" style="padding:8px 12px;white-space:nowrap;">Chat now</a>
+                    </div>
+                    <div class="stat-card" style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <div style="font-weight:700;">Startup Loan — RM20,000</div>
+                            <div style="font-size:13px;color:var(--muted);">Support for product development and launch</div>
+                        </div>
+                        <a href="https://wa.me/" class="share-btn" style="padding:8px 12px;white-space:nowrap;">Chat now</a>
+                    </div>
+                    <div class="stat-card" style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <div style="font-weight:700;">Expansion Loan — RM50,000</div>
+                            <div style="font-size:13px;color:var(--muted);">Scale operations and hire staff</div>
+                        </div>
+                        <a href="https://wa.me/" class="share-btn" style="padding:8px 12px;white-space:nowrap;">Chat now</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // minimal interactivity to open drawer (keeps page consistent)
+        document.querySelectorAll('.nav-drawer-close, .nav-drawer-overlay').forEach(()=>{});
+    </script>
+
+</body>
+</html>
