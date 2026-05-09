@@ -1,0 +1,823 @@
+================================================================================
+BIZBUDDY — SYSTEM AUDIT FINAL
+Generated: 2026-05-10
+Branch: main | Deployment: https://bizbuddy-rtf9.onrender.com
+================================================================================
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 1: COMPLETE FEATURE LIST
+════════════════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────────────
+1.1 WHATSAPP BOT (handlers/ + features/)
+──────────────────────────────────────────────────────────────────────────────
+
+ONBOARDING FLOW (handlers/text.js, state: 'new')
+  - Greeting in EN or BM (auto-detected via Gemini)
+  - Q1: Owner name
+  - Q2: Business name
+  - Q3: Product/service type
+  - Q4: Country selection (Malaysia / Indonesia / Philippines / Other)
+  - Q5: State/region (country-specific list)
+  - Q6: Monthly revenue (country-specific ranges)
+  - Q7: Business age (free text → parsed to months)
+  - Q8: Has bank account (yes/no → stored as has_bank_account)
+  - Q9: Has SSM/NIB/DTI registration (yes/no → stored as has_ssm)
+  - Q10: Onboarding complete → credit score calculated → summary sent
+  - Q11: Optional — refers user to WhatsApp-linked dashboard
+
+MAIN MENU (handlers/menu.js, state: 'menu')
+  Option 1 — Record Sale/Expense
+    - Free-text input parsed by Gemini (amount, item, type)
+    - Distinguishes sale vs expense (keywords + Gemini)
+    - Stores to users.sales[] or users.expenses[]
+    - Running totals sent back (today's sales / expenses / net)
+    - Bilingual confirmation (BM/EN)
+
+  Option 2 — View Score (features/credit.js + profile.js)
+    - calculateCreditScore() runs 6-factor algorithm
+    - Updates credit_score, score_date, score_breakdown, score_history in Firestore
+    - Gemini generates narrative explanation
+    - Score report: score/100, level (Cemerlang/Baik/Sederhana/Rendah)
+    - 6-factor breakdown with improvement steps
+    - Proactive trigger: if score crosses 70 for first time → loan match offer
+    - SIJIL / CERTIFICATE command: shows credit certificate
+    - PECAHAN / BREAKDOWN command: detailed factor breakdown
+
+  Option 3 — View Summary (features/summary.js)
+    - Daily/weekly/monthly revenue totals
+    - Total sales, expenses, profit, margin %
+    - Margin health indicator
+    - Average transaction value
+    - Top item by revenue
+    - Last 5 sales
+    - AI-generated trend analysis (if 3+ sales)
+    - AI-generated actionable business tip
+
+  Option 4 — AI Business Chat (handlers/chat.js)
+    - System prompt includes: business name, product, country, monthly revenue,
+      business age, bank status, SSM status, credit score + breakdown,
+      last 10 sales, last 5 expenses, total revenue, total profit
+    - Answers: sales forecasting, cost reduction, social media, ASEAN exports,
+      loan eligibility, pricing strategy
+    - Responds in user's language (BM/EN)
+    - Max 4 sentences per answer
+
+  Option 5 — Loan Agent (features/loan_agent.js)
+    SUB-PATH A: Express Loan Q&A (6 questions, ~60 seconds)
+      Q1: Business name
+      Q2: Industry type (1-5: F&B / Retail / Services / Manufacturing / Other)
+      Q3: Business age (1-4: <6m / 6-12m / 1-2y / 2+y)
+      Q4: Monthly revenue (country-specific 4 ranges)
+      Q5: Loan amount needed (country-specific 4 ranges)
+      Q6: Loan purpose (1-5: Inventory / Equipment / Expansion / Working capital / Other)
+      → generateProvisionalScore() via Gemini (fallback: rule-based)
+      → matchLoans() → sendMatches() (top 3 with reasoning)
+
+    SUB-PATH B: Loan Matching
+      - Hard filter: country match, min_monthly_revenue, min_business_age_months, max_amount
+      - Aspirational fallback: if no matches, show top 3 aspirational with gap reasoning
+      - Scoring: rate (40%) + amount fit (30%) + credit score (20%) + doc simplicity (10%)
+      - Per-match Gemini reasoning: "You qualify because..." or "To qualify, you need..."
+      - Saves loan_matches to user doc
+      - User selects 1/2/3 → loan_doc_upload state
+
+    SUB-PATH C: Document Upload (handleDocUpload)
+      - Receives mediaId (image or document)
+      - Generates BB-XXXXXXXX reference ID
+      - Creates loan_applications/{refId} with full snapshot:
+        * id, user_id, user_name, user_phone
+        * loan_product_id, bank_name, product_name
+        * amount, interest_rate, purpose
+        * provisional_score, score_reasoning (string), score_breakdown (object)
+        * credit_score, score_history[]
+        * verification{} snapshot (ssm_verified, bank_verified, has_ssm, etc.)
+        * documents[], status: 'pending_review'
+        * express_loan_data{}, required_docs[]
+        * submitted_at, reviewed_at: null, reviewer_notes: null
+      - Updates user: state=menu, last_application_id, loan_application_status
+      - Sends confirmation with ref ID + dashboard link
+
+    SUB-PATH D: Loan Status Check (showLoanStatus)
+      - Queries loan_applications where user_id == phone
+      - Ordered by submitted_at DESC (falls back to in-memory sort if no index)
+      - Shows last 5 applications with status, ref ID, time ago
+
+    SUB-PATH E: Proactive Trigger (checkProactiveTrigger)
+      - Called after every credit score calculation
+      - Fires ONCE when score crosses 70 for first time
+      - Sends WhatsApp offer to see loan matches
+      - Sets state: 'loan_proactive_review'
+
+GLOBAL COMMANDS (any state, handlers/text.js)
+  MENU / BALIK / BACK         → reset to menu state
+  SKOR / SCORE / KREDIT       → trigger credit score recalculation
+  RINGKASAN / SUMMARY         → show sales summary
+  PROFILE / PROFIL            → show business profile (features/profile.js)
+  DATA                        → show stored data transparency view
+  SIJIL / CERTIFICATE         → show credit certificate
+  PECAHAN / BREAKDOWN         → show score breakdown
+  LANGKAU / SKIP              → skip document upload (saves app without doc)
+  YES / YA                    → confirm proactive loan match trigger
+  Apply BB-XXXXXXXX           → WhatsApp handoff from landing page token
+
+DOCUMENT/IMAGE PROCESSING (handlers/image.js)
+  - Downloads media from Meta Graph API
+  - State loan_doc_upload → handleDocUpload()
+  - State verify_ssm_doc → Gemini Vision OCR SSM cert
+    * Extracts: company_name, reg_number, reg_date, director_name, business_type
+    * Fuzzy name match against userData.business_name (Levenshtein-like)
+    * Updates: ssm_verified, ssm_reg_number, ssm_reg_date, ssm_business_type
+  - State verify_bank_doc → Gemini Vision OCR bank statement
+    * Extracts: account_holder_name, account_number, bank_name, monthly_credits
+    * Fuzzy name match against userData.owner_name
+    * Updates: bank_verified, bank_acc_last4, bank_holder_name, bank_name_verified
+  - Any state + image → general Gemini Vision analysis (contextual)
+
+AUDIO PROCESSING (handlers/image.js, transcribeAudio)
+  - Downloads audio from Meta Graph API
+  - Transcribes via Gemini (audio → text)
+  - Passes transcript to handleText() as if user typed it
+
+SMART INTENT (handlers/smart.js)
+  - Catches unrecognized messages in any state
+  - Gemini classifies: log_sale / log_expense / check_score / check_summary /
+    ask_ai / show_menu / unknown
+  - Routes to appropriate handler or AI answer (max 4 sentences)
+
+WEB TOKEN HANDOFF (handlers/text.js, state: landing page "Apply BB-XXXXXXXX")
+  - Reads landing_signups/{token} from Firestore
+  - Checks expiry (48h window)
+  - Populates user's express_loan_data from landing signup
+  - Runs matchLoans() → sendMatches() skipping the 6-question flow
+  - Updates token: status=whatsapp_matched
+
+BANK NOTIFICATION (index.js, /notify_user)
+  - Called by bank portal after decision
+  - Looks up application, gets user phone, reads user language pref
+  - Sends WhatsApp message: approved / rejected (with reason) / needs_info
+  - Updates loan_applications: status, reviewer_notes, reviewed_at
+
+
+──────────────────────────────────────────────────────────────────────────────
+1.2 LANDING PAGE (public/index.html)
+──────────────────────────────────────────────────────────────────────────────
+
+SECTIONS
+  - Nav: logo, MSME login link, Bank Portal link, "Try BizBuddy" CTA
+  - Hero: headline "Financial Identity Layer for ASEAN's Invisible Entrepreneurs"
+  - Problem stats: 97% MSMEs, 65% denied, ~$300B credit gap
+  - How It Works: 4-step visual (Chat → Score → Verify → Match)
+  - 60-Second Instant Match Form:
+    * Fields: name, phone, country, loan amount, monthly revenue, business age,
+              loan purpose, industry
+    * Submits to POST /api/match-loans
+    * Shows top 3 matches with rate, amount, match %, reasoning
+    * User selects one → PATCH /api/match-loans/:token/select
+    * Returns wa_url → opens WhatsApp with "Apply {token}" prefilled
+  - Audience cards: Informal Seller, Loan Officer, Government Program
+  - Footer
+
+FIREBASE
+  - Writes to landing_signups collection on form submit (via server)
+  - No direct client-side Firestore writes from landing page
+
+
+──────────────────────────────────────────────────────────────────────────────
+1.3 MSME DASHBOARD (public/dashboard.html + app.js)
+──────────────────────────────────────────────────────────────────────────────
+
+LOGIN
+  - Enter WhatsApp phone number
+  - Fetches users/{phone} from Firestore
+  - Error if not found ("register via WhatsApp first")
+
+CARDS / COMPONENTS
+  Score Hero
+    - Circular SVG arc animated to score %
+    - Color: green ≥60, yellow 40-59, red <40
+    - Shows score/100, level (Excellent/Good/Moderate/Low)
+    - Percentage bar + tier label
+
+  Stats Grid (4 stats)
+    - Total Revenue (sum of all sales)
+    - Transactions (count of sales records)
+    - Total Expenses (sum of expenses)
+    - Net Profit (revenue - expenses)
+    - Trend indicators vs prior period
+
+  Verification Status
+    - SSM / NIB / DTI status badge (Verified / Declared / Unverified)
+    - Bank Account status badge
+    - Button: "Verify Now" → WA link to start verification flow
+
+  Available Loan Programs
+    - Fetches loan_products (active=true, country match) from Firestore
+    - 3-column grid on desktop
+    - Cards: product name, bank, amount range, rate, eligibility %
+    - Eligible: unlocked card with apply button
+    - Ineligible: locked card with gap reasoning ("Need RM2k more monthly revenue")
+
+  My Applications
+    - Fetches loan_applications where user_id == phone
+    - Status badges: Pending / Approved / Rejected / Needs Info
+    - Ref ID, bank, amount, submitted date
+
+  Score Breakdown
+    - 6 horizontal bars (one per factor)
+    - Shows n/max for each, colored green/yellow/red
+    - "Next Best Action" CTA: weakest factor highlighted + specific action
+
+  Score History Chart
+    - Line chart (Chart.js) of score_history[] entries over time
+    - Hidden if fewer than 2 data points
+
+  Sales Activity Chart
+    - Bar chart: sales (teal) + expenses (red) overlay
+    - Tabs: 7d / 30d / All Time
+    - Dates on X-axis
+
+  Recent Activity
+    - Tabbed: Sales | Expenses
+    - Paginated (8 per page)
+    - Fixed height (no infinite scroll)
+    - Shows: date, item, amount
+
+  Loan Readiness Roadmap
+    - 6-item checklist:
+      1. Profile created (always done after onboarding)
+      2. First sale recorded
+      3. 10+ transactions
+      4. 30 days of records
+      5. Bank account
+      6. SSM/registration
+    - Progress % + progress bar
+
+  Certificate Card
+    - Score, stars (2-5), status badge
+    - Certificate ID (NC-xxxx-YYYYMMDD)
+    - Encourage screenshot for bank visits
+
+FEATURES
+  - Bilingual EN/BM toggle (applyTranslations, 80+ keys)
+  - Light/dark theme toggle
+  - Pull-to-refresh (touch events)
+  - Mobile / Desktop view toggle
+  - PWA installable (manifest.json + sw.js)
+  - XSS protection via esc() on all user-sourced strings
+
+
+──────────────────────────────────────────────────────────────────────────────
+1.4 BANK PORTAL (public/bank.html + app.js)
+──────────────────────────────────────────────────────────────────────────────
+
+LOGIN
+  - Access code input → POST /api/bank-session
+  - Server validates 'bank2026', returns BANK_API_KEY
+  - Key stored in sessionStorage as 'bank_api_key'
+  - bankLogout() clears sessionStorage key
+
+DASHBOARD (loadBankView)
+  - Parallel Firestore reads: getDocs(users) + getDocs(loan_applications)
+  - Stores allUsers[] and allApplications[] in memory
+
+MSME PORTFOLIO TABLE
+  - Columns: MSME Name, Score, Revenue, Sales Count, Verified, Country, Actions
+  - Search by name
+  - Filter by verification status
+  - Pagination (10 per page)
+
+CHARTS (Chart.js 4.4)
+  - Score Distribution: bar chart of score buckets (0-20, 21-40, 41-60, 61-80, 81-100)
+  - Portfolio Breakdown: doughnut (verified vs building vs unknown)
+  - Revenue Trends: line chart (simulated last 7 days from users data)
+
+LOAN APPLICATIONS PIPELINE (renderLoanApplications)
+  - Reads from allApplications[] (sorted by submitted_at DESC)
+  - Status pill: pending_review / approved / rejected / needs_info
+  - Click → openApplicationReview(appId)
+
+APPLICATION REVIEW MODAL (openApplicationReview)
+  - Header: applicant name, product, bank
+  - Status banner (color-coded)
+  - Stats: credit score (with tier color), amount, purpose, submitted date
+  - Score Breakdown section:
+    * Uses app.score_breakdown (object) if available
+    * Key map: consistency/revenue/age/formalization/volume/expenses
+    * Max map: 25/20/15/20/10/10
+    * Horizontal bars colored green/yellow/red by %
+    * Falls back to app.score_reasoning string if no breakdown
+  - Documents section: lists mediaIds
+  - Express Loan Details: key-value of express_loan_data{}
+  - Reviewer Notes: shows if already set
+  - Action buttons (disabled if not pending_review):
+    * ✅ Approve → reviewApplication(appId, 'approved')
+    * ❌ Reject → reviewApplication(appId, 'rejected')
+    * 📝 Request Info → toggleReviewNotes() → reviewApplicationWithNote(appId)
+  - All review actions POST to /notify_user with x-bank-key header
+
+MSME DETAIL MODAL (openModal)
+  - Opens on MSME row click
+  - Shows: score, revenue, sales count, biz age, recent sales list
+  - Verification badges (SSM Verified / Bank Verified with color)
+  - Score sparkline (Chart.js mini line chart) if score_history ≥ 2 entries
+  - Phone row (WhatsApp link)
+
+IMPACT METRICS SECTION
+  - MSMEs Onboarded (count)
+  - Total Transactions Tracked
+  - Loan-Eligible MSMEs (score ≥ 60)
+  - ASEAN Countries Reached
+  - Financial Inclusion Progress bars
+  - Country Breakdown
+
+ASEAN MAP
+  - Canvas-drawn map of Malaysia (MY), Indonesia (ID), Philippines (PH)
+  - Dots per MSME positioned by country/state
+  - Tooltip on hover: name, score, revenue, verified status
+  - HiDPI-aware (devicePixelRatio scaling)
+
+OTHER
+  - Bilingual EN/BM toggle
+  - Light/dark theme toggle
+  - Manual refresh (refreshLoanPipeline re-fetches loan_applications)
+  - Toast notification system (approve/reject/info confirmations)
+  - FEATURES.txt + WHATS_NEW.md referenced but not loaded in portal
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 2: API ENDPOINTS
+════════════════════════════════════════════════════════════════════════════════
+
+GET  /webhook
+  Purpose:  Meta WhatsApp webhook verification
+  Auth:     hub.verify_token must match WEBHOOK_VERIFY_TOKEN env var
+  Response: 200 + challenge string, or 403
+
+POST /webhook
+  Purpose:  Receive WhatsApp messages from Meta
+  Auth:     None (Meta signs payload — not verified in this impl)
+  Flow:     Dedup → enqueue per phone → handleText / handleImage / transcribeAudio
+  Response: 200 immediately (async processing)
+  Note:     Returns 200 before processing to prevent Meta retries
+
+POST /api/bank-session
+  Purpose:  Validate bank access code, return API key for portal session
+  Auth:     Body { access_code: 'bank2026' }
+  Response: { ok: true, bank_key: string } or 401/500
+  Note:     Requires BANK_API_KEY env var set
+
+POST /notify_user
+  Purpose:  Bank portal → update application status + WhatsApp notify user
+  Auth:     x-bank-key header must match BANK_API_KEY env var
+  Body:     { application_id, status, reviewer_notes? }
+  Statuses: 'approved' | 'rejected' | 'needs_info'
+  Flow:     Validate key → fetch application → update Firestore → send WhatsApp
+  Response: { ok: true, phone, status } or 400/401/404/500
+  Note:     Returns 401 for missing/wrong key, 500 if BANK_API_KEY not set
+
+POST /api/match-loans
+  Purpose:  Landing page instant loan match (no WhatsApp required)
+  Auth:     Rate limit: 5 requests/phone/hour (in-memory)
+  Body:     { name, phone, country, loan_amount_range, purpose,
+              monthly_revenue_range, business_age_range, industry }
+  Flow:     Validate → rate limit → build userData shell → matchLoans() →
+            compute monthly repayment → save to landing_signups → return matches
+  Response: { ok: true, token, matches[] } or 400/429/500
+  Note:     token is BB-XXXXXXXX, expires 48h
+
+PATCH /api/match-loans/:token/select
+  Purpose:  User selects a loan from landing page results
+  Auth:     None (token is the auth)
+  Body:     { loan_product_id }
+  Flow:     Validate token exists + not expired → update selected_loan_id →
+            generate wa_url with "Apply {token}" prefilled
+  Response: { ok: true, wa_url } or 400/404/410/500
+
+GET  /* (static files)
+  Purpose:  Serve public/ directory (index.html, dashboard.html, bank.html, app.js, style.css, etc.)
+  Auth:     None
+  Note:     Express static middleware, SPA routing not configured (no catch-all)
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 3: FIRESTORE COLLECTIONS AND FIELDS
+════════════════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────────────
+Collection: users
+Document ID: phone number (no +, e.g. "60123456789")
+──────────────────────────────────────────────────────────────────────────────
+
+ONBOARDING FIELDS
+  owner_name          string     Full name from Q1
+  business_name       string     Business name from Q2
+  product             string     Product/service from Q3
+  country             string     'MY' | 'ID' | 'PH' | 'Other'
+  state               string     State/region (country-specific)
+  monthly_revenue     string     Revenue range label (e.g. "RM5,000 – 20,000")
+  biz_age             string     Free-text age (e.g. "1.5 tahun")
+  has_bank_account    string     'yes' / 'no' / raw user answer
+  has_ssm             string     'yes' / 'no' / raw user answer
+  language            string     'bm' | 'en'
+  registered_date     string     ISO date of first interaction
+
+BEHAVIORAL DATA
+  sales[]             array      { amount, item, date, source }
+  expenses[]          array      { amount, item, date, source }
+
+CREDIT SCORE
+  credit_score        number     0-100
+  score_date          string     ISO date of last calculation
+  score_breakdown     object     { consistency, revenue, age, formalization, volume, expenses }
+  score_history[]     array      [{ date, score }]  ← appended via FieldValue.arrayUnion
+  provisional_score   number     Gemini-scored value from express flow (0-100)
+  provisional_reasoning string   One-sentence Gemini explanation
+
+VERIFICATION
+  ssm_verified        bool       True after Gemini OCR confirmed SSM doc
+  ssm_reg_number      string     Extracted from SSM certificate
+  ssm_reg_date        string     Extracted from SSM certificate
+  ssm_business_type   string     Extracted from SSM certificate
+  bank_verified       bool       True after Gemini OCR confirmed bank statement
+  bank_acc_last4      string     Last 4 digits of account number
+  bank_holder_name    string     Name from bank statement
+  bank_name_verified  string     Bank name from statement
+
+LOAN STATE
+  state               string     Bot state machine value (e.g. 'menu', 'express_loan_q3')
+  express_loan_data   object     { business_name, industry, biz_age_label, biz_age_months,
+                                   monthly_revenue_label, monthly_revenue_num,
+                                   loan_amount_label, loan_amount_num, purpose }
+  loan_matches[]      array      Top 3 matched loan products with matchPct + reasoning
+  selected_loan       object     Chosen loan product for application
+  last_application_id string     Last BB-XXXXXXXX ref
+  loan_application_status string 'pending_review' | 'approved' | 'rejected' | 'needs_info'
+
+
+──────────────────────────────────────────────────────────────────────────────
+Collection: loan_products
+Document ID: auto-generated
+──────────────────────────────────────────────────────────────────────────────
+
+  bank_name               string
+  product_name            string
+  min_amount              number
+  max_amount              number
+  interest_rate           number    Annual % rate
+  tenure_months_max       number
+  min_credit_score        number
+  min_monthly_revenue     number
+  min_business_age_months number
+  countries[]             array     ['MY', 'ID', 'PH']
+  required_docs[]         array     ['bank_statement', 'ssm_cert', etc.]
+  active                  bool
+  (seeded via seed_loan_products.js)
+
+
+──────────────────────────────────────────────────────────────────────────────
+Collection: loan_applications
+Document ID: BB-XXXXXXXX (generated in handleDocUpload)
+──────────────────────────────────────────────────────────────────────────────
+
+  id                  string     Same as doc ID
+  user_id             string     Phone number (FK to users)
+  user_name           string     Snapshot of owner_name at submission
+  user_phone          string     Same as user_id
+  loan_product_id     string     FK to loan_products
+  bank_name           string     Snapshot
+  product_name        string     Snapshot
+  amount              number     max_amount from selected product
+  interest_rate       number     Snapshot
+  purpose             string     From express_loan_data.purpose
+  provisional_score   number     userData.provisional_score || credit_score at time of submission
+  credit_score        number     userData.credit_score at time of submission
+  score_reasoning     string     One-sentence Gemini explanation (provisional)
+  score_breakdown     object     { consistency, revenue, age, formalization, volume, expenses }
+                                 null if user never ran full credit score
+  score_history[]     array      Snapshot of user's score_history at submission
+  verification        object     {
+                                   ssm_verified, ssm_reg_number, has_ssm,
+                                   bank_verified, bank_acc_last4, bank_holder_name,
+                                   has_bank_account
+                                 }
+  documents[]         array      Media IDs from Meta Graph API
+  status              string     'pending_review' | 'approved' | 'rejected' | 'needs_info'
+  submitted_at        timestamp
+  reviewed_at         timestamp  null until reviewed
+  reviewer_notes      string     null until reviewed
+  express_loan_data   object     Snapshot of user's express_loan_data
+  required_docs[]     array      From selected loan product
+
+
+──────────────────────────────────────────────────────────────────────────────
+Collection: landing_signups
+Document ID: BB-XXXXXXXX token
+──────────────────────────────────────────────────────────────────────────────
+
+  token                   string     BB-XXXXXXXX
+  name                    string
+  phone                   string     Cleaned (no +)
+  country                 string
+  loan_amount_range       string     Raw form value
+  loan_amount_num         number     Parsed midpoint
+  purpose                 string
+  monthly_revenue_estimate number
+  business_age_months     number
+  industry                string
+  express_loan_data       object     Full resolved data for matchLoans()
+  matches[]               array      Enriched match objects with repayment estimate
+  selected_loan_id        string     null until user selects
+  status                  string     'pending_selection' | 'awaiting_whatsapp' | 'whatsapp_matched'
+  created_at              timestamp
+  expires_at              timestamp  created_at + 48h
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 4: CREDIT SCORING ALGORITHM (features/credit.js)
+════════════════════════════════════════════════════════════════════════════════
+
+6 factors, max 100 points total:
+
+1. Transaction Consistency (max 25)
+   - Counts unique dates in sales[]
+   - ≥20 dates = 25pts | ≥10 = 20pts | ≥5 = 14pts
+   - 2-4 dates: ratio of unique_days / day_span * 8 + 2 (2-10pts)
+   - 1 date = 3pts | 0 = 0pts
+
+2. Revenue Strength (max 20)
+   - Compares avg_monthly_sales vs stated monthly_revenue
+   - ratio ≥1.0 = 20pts | ≥0.75 = 16pts | ≥0.5 = 12pts | ≥0.25 = 8pts | else = 4pts
+   - Has sales but no stated revenue = 6pts
+
+3. Business Age (max 15)
+   - declared biz_age (parsed to months) + months since registered_date
+   - ≥60m = 15 | ≥36m = 12 | ≥12m = 9 | ≥6m = 6 | ≥3m = 4 | >0 = 2 | else = 1
+
+4. Formalization (max 20)
+   - SSM: ssm_verified=10pts | declared yes but unverified=7pts | unknown=2pts | no=0pts
+   - Bank: bank_verified=10pts | declared yes but unverified=7pts | unknown=2pts | no=0pts
+
+5. Record Volume (max 10)
+   - ≥30 sales = 10 | ≥20 = 8 | ≥10 = 6 | ≥5 = 4 | ≥1 = 2 | 0 = 0
+
+6. Expense Discipline (max 10)
+   - ≥10 expenses = 10 | ≥5 = 7 | ≥2 = 4 | ≥1 = 2 | 0 = 0
+
+Score levels:
+  ≥80 = Cemerlang (Excellent)
+  ≥60 = Baik (Good)
+  ≥40 = Sederhana (Moderate)
+  <40  = Rendah (Low)
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 5: MULTI-COUNTRY SUPPORT (config.js)
+════════════════════════════════════════════════════════════════════════════════
+
+Supported countries: MY, ID, PH (+ generic fallback)
+Per-country data:
+  - currency symbol (RM / Rp / ₱)
+  - registration body name (SSM / NIB / DTI)
+  - states/regions list
+  - revenue range labels + numeric midpoints (4 tiers)
+  - loan amount range labels + numeric midpoints (4 tiers)
+
+All currency amounts formatted with country-appropriate separators.
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 6: SYSTEM-LEVEL FEATURES
+════════════════════════════════════════════════════════════════════════════════
+
+Per-phone message queue (index.js)
+  - Map<phone, Promise> chain
+  - Each incoming message waits for prior to finish
+  - Prevents Firestore race conditions on rapid messages
+
+Message deduplication (index.js)
+  - In-memory Set of 500 message IDs (LRU eviction)
+  - Handles Meta webhook retry storms
+  - Resets on server restart
+
+Gemini retry wrapper (gemini.js)
+  - 3 attempts with exponential backoff on API errors
+  - Covers genText() and vision/audio calls
+
+Meta send retry wrapper (send.js)
+  - Retry logic on WhatsApp message send failures
+  - Logs [send error] on final failure
+
+Rate limiting (index.js, /api/match-loans)
+  - 5 requests per phone per hour
+  - In-memory Map, resets on server restart
+
+XSS protection (public/app.js)
+  - esc() function sanitizes all user-sourced strings before DOM insertion
+  - Applied to: name, business_name, product, notes, all table/modal content
+
+i18n (public/app.js)
+  - translations{} object with 80+ keys
+  - t(key, vars) with variable substitution
+  - Covers: EN | BM (Bahasa Malaysia)
+  - Applied via applyTranslations() on lang toggle
+
+PWA (public/dashboard.html, manifest.json, sw.js)
+  - Installable on mobile via browser prompt
+  - Service worker for offline shell caching
+  - Install banner UI
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 7: ENVIRONMENT VARIABLES
+════════════════════════════════════════════════════════════════════════════════
+
+WEBHOOK_VERIFY_TOKEN    Meta webhook verification token (any random string)
+WHATSAPP_TOKEN          Meta Graph API bearer token
+PHONE_NUMBER_ID         Meta business phone number ID
+
+GEMINI_API_KEY          Google Gemini 2.5 Flash API key
+
+FIREBASE_CREDENTIALS_BASE64  Base64-encoded Firebase Admin service account JSON
+
+PORT                    Server port (default: 3000)
+PWA_URL                 Base URL for dashboard link sent in WhatsApp
+                        Fallback: https://bizbuddy-rtf9.onrender.com
+
+BANK_API_KEY            Shared secret for /notify_user endpoint
+                        REQUIRED — server returns 500 if unset
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 8: KNOWN GAPS AND ISSUES
+════════════════════════════════════════════════════════════════════════════════
+
+SECURITY
+  [GAP] Webhook signature not verified
+        Meta signs all webhook payloads with X-Hub-Signature-256 header.
+        Current code ignores this. Any actor with the endpoint URL can forge
+        webhook calls. Fix: validate signature against WHATSAPP_TOKEN.
+
+  [GAP] /api/match-loans phone validation weak
+        Cleans whitespace, checks /^\d{7,15}$/ — does not normalize international
+        format (+60 vs 60 vs 060). Could cause duplicate rate-limit keys.
+
+  [GAP] bank2026 access code is hardcoded in server
+        Low risk for hackathon (shared secret pattern), but worth noting.
+
+  [GAP] Rate limiter and dedup are in-memory only
+        Resets on every server restart. On Render free tier, this resets
+        frequently (spin-down after 15min idle). Not a security issue per se
+        but rate limit is ineffective after cold starts.
+
+DATA
+  [GAP] score_breakdown is null for express-only users
+        Users who completed express flow (6 questions) but never triggered
+        "View Score" (option 2) will have no score_breakdown in their user doc.
+        handleDocUpload saves score_breakdown: userData.score_breakdown || null.
+        Bank review modal falls back to score_reasoning string. Acceptable.
+
+  [GAP] documents[] stores Meta media IDs, not accessible URLs
+        Meta media URLs expire after ~5 minutes. Stored IDs require a fresh
+        Graph API call to retrieve. Bank portal displays IDs only, cannot
+        view documents without additional /media/{id} API call implementation.
+
+  [GAP] score_history entries have no dedup guard
+        score_history uses FieldValue.arrayUnion (Firebase deduplicates by value).
+        If same {date, score} recorded twice, Firebase deduplicates. Safe.
+        But different scores on same date both get stored. Fine for sparkline.
+
+  [GAP] Firestore composite index may not exist in new environments
+        loan_applications query (user_id + submitted_at) requires composite index.
+        Fallback exists (in-memory sort), but fallback fetches up to 20 docs
+        unordered and trims to 5. Acceptable for demo scale.
+
+FUNCTIONAL
+  [GAP] No SPA routing — deep links not supported
+        /dashboard.html works. But /dashboard.html?phone=xxx doesn't auto-login.
+        User must type phone. Intentional for demo but limits UX.
+
+  [GAP] Landing page token flow requires user to be already onboarded
+        Apply {token} flow in WhatsApp looks up landing_signups doc and populates
+        express_loan_data, then matches loans. But if user is brand new (no user
+        doc exists), text.js creates a new user doc. The token flow then still
+        runs matchLoans() on a minimal user profile, which may produce weaker
+        matches than a fully onboarded user would get.
+
+  [GAP] ASEAN map in bank portal uses approximate country centroids
+        Dots are plotted by country, not precise state coordinates.
+        State field in user doc is not mapped to lat/lng. Cosmetic only.
+
+  [GAP] Revenue Trends chart on bank portal is simulated
+        Bank portal chart shows "last 7 days" revenue, but this is constructed
+        from aggregated user data, not real time-series. Cosmetic for demo.
+
+  [GAP] chat.js has no conversation memory
+        Each message is a fresh Gemini call with the full business data context
+        but no prior conversation turns. User cannot reference previous answers.
+
+  [GAP] No push notifications from dashboard
+        Dashboard does not subscribe to Firestore real-time listeners.
+        Status updates (e.g. loan approved) are visible only after manual refresh.
+
+VERIFICATION
+  [UNVERIFIED] Gemini Vision OCR accuracy on low-quality photos
+        Works on clean PDFs/photos in testing. Degraded photos may fail fuzzy
+        name matching. Fallback: marks unverified, prompts user to retake.
+
+  [UNVERIFIED] Audio transcription quality for Malay accent
+        Gemini handles standard BM but heavy dialect or slang may degrade.
+        No fallback for failed transcription beyond "please try again" error.
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 9: CONFIRMED WORKING vs UNVERIFIED
+════════════════════════════════════════════════════════════════════════════════
+
+CONFIRMED WORKING (verified in code this session)
+  ✅ Full onboarding flow (state machine, all 10 questions)
+  ✅ Credit scoring algorithm (6 factors, deterministic, unit-testable)
+  ✅ Score storage to Firestore (score, breakdown, history via arrayUnion)
+  ✅ Express loan path (6 questions → provisional score → matchLoans → sendMatches)
+  ✅ Loan product hard filtering + aspirational fallback
+  ✅ Per-match Gemini reasoning (qualified vs gap)
+  ✅ handleDocUpload creates full application snapshot in loan_applications
+  ✅ score_breakdown, credit_score, score_history, verification{} saved in appDoc
+  ✅ Bank portal auth: /api/bank-session returns key, /notify_user checks x-bank-key
+  ✅ bankLogout clears sessionStorage
+  ✅ reviewApplication + reviewApplicationWithNote send x-bank-key header
+  ✅ Review modal reads app.score_breakdown (object) with correct key map
+  ✅ Review modal fallback: shows score_reasoning string if no breakdown
+  ✅ renderLoanApplications reads from allApplications[] (real Firestore data)
+  ✅ MSME detail modal shows verification badges (ssm_verified, bank_verified)
+  ✅ Score sparkline renders if score_history ≥ 2 entries
+  ✅ showToast works for approve/reject/info/error states
+  ✅ Landing page → /api/match-loans → token → WA handoff
+  ✅ /api/match-loans/:token/select → wa_url generation
+  ✅ All deployed URLs point to bizbuddy-rtf9.onrender.com (no placeholders)
+  ✅ .env not tracked by git
+  ✅ .claude/ untracked from git index
+  ✅ .gitignore covers: node_modules, .env, Firebase credentials, .claude,
+      audit docs, Windows junk, logs, build artifacts
+
+UNVERIFIED (not tested end-to-end in this session)
+  ⚠️  Meta webhook delivery in production (depends on Meta app approval + phone)
+  ⚠️  Gemini Vision OCR on SSM certificates and bank statements
+  ⚠️  Audio transcription via Gemini
+  ⚠️  WhatsApp token handoff (Apply BB-XXXXXXXX) full flow
+  ⚠️  Render deployment: all env vars set, correct build command
+  ⚠️  Firestore composite index created for loan_applications query
+  ⚠️  seed_loan_products.js run → loan_products collection populated
+  ⚠️  PWA install banner + service worker on mobile Safari / Chrome
+  ⚠️  PDF export from bank portal (referenced in app.js but not audited)
+  ⚠️  proactive trigger actually fires once and not again (flag-not-set check)
+  ⚠️  Rate limiter effectiveness (in-memory, clears on cold start)
+
+
+════════════════════════════════════════════════════════════════════════════════
+PART 10: FILE INVENTORY
+════════════════════════════════════════════════════════════════════════════════
+
+SERVER
+  index.js              Express server, all endpoints, queue, dedup, rate limit
+  db.js                 Firebase Admin SDK init (base64 credentials)
+  gemini.js             Gemini API wrapper (genText, parseJson, vision, audio)
+  send.js               Meta WhatsApp send with retry
+  config.js             Country config: MY/ID/PH currency, states, ranges
+  seed_loan_products.js One-time Firestore seeder for loan_products collection
+
+HANDLERS
+  handlers/text.js      Main state machine (~600+ lines)
+  handlers/menu.js      Menu 1-5 routing
+  handlers/image.js     Image OCR (SSM/bank) + audio transcription
+  handlers/sale.js      Sale/expense logging from text
+  handlers/chat.js      AI business advisor chat
+  handlers/smart.js     Intent classifier for unrecognized messages
+
+FEATURES
+  features/credit.js    6-factor credit scoring + generateCreditScore()
+  features/loan_agent.js Express Q&A, matchLoans, handleDocUpload, showLoanStatus
+  features/profile.js   showProfile, showCertificate, showScoreBreakdown
+  features/summary.js   showSalesSummary with AI insights
+  features/loan.js      showLoanChecklist (7-item readiness)
+
+PUBLIC
+  public/index.html     Landing page
+  public/dashboard.html MSME dashboard
+  public/bank.html      Bank portal
+  public/app.js         PWA controller (~2200 lines)
+  public/style.css      All styles (~1300 lines)
+  public/manifest.json  PWA manifest
+  public/sw.js          Service worker
+
+CONFIG / DOCS
+  package.json          Node.js deps (express, firebase-admin, axios, dotenv, @google/generative-ai)
+  .env.example          Template for all required env vars
+  .gitignore            Excludes: node_modules, .env, credentials, .claude, audit docs
+  README.md             Full project documentation
+
+
+================================================================================
+END OF AUDIT
+================================================================================
