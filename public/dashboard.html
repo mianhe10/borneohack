@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="theme-color" content="#0d1117"/>
+<link rel="manifest" href="/manifest.json"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="BizBuddy"/>
+<title>BizBuddy — My Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="preconnect" href="https://www.gstatic.com"/>
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- INSTALL BANNER -->
+<div id="install-banner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:1000;background:var(--surface,#161b27);border:1px solid rgba(0,212,170,0.3);border-radius:16px;padding:14px 20px;display:none;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.4);min-width:280px;max-width:360px;">
+  <span style="font-size:20px;">📱</span>
+  <span style="font-size:13px;color:#e8edf8;flex:1;">Add BizBuddy to Home Screen</span>
+  <button id="install-btn" style="background:linear-gradient(135deg,#00d4aa,#6c63ff);border:none;border-radius:8px;padding:7px 14px;color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Install</button>
+  <button id="install-dismiss" style="background:transparent;border:none;color:#5a6785;cursor:pointer;font-size:16px;line-height:1;padding:4px;">✕</button>
+</div>
+
+<!-- UPDATE BANNER -->
+<div id="update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:1001;background:linear-gradient(135deg,#00d4aa,#6c63ff);padding:10px 20px;display:none;align-items:center;justify-content:center;gap:12px;">
+  <span style="font-size:13px;color:#fff;font-weight:600;">🆕 New version available</span>
+  <button onclick="location.reload()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);border-radius:6px;padding:5px 14px;color:#fff;font-weight:700;font-size:12px;cursor:pointer;">Refresh</button>
+</div>
+
+<!-- LOADING -->
+<div id="loading">
+  <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;background:linear-gradient(135deg,#00d4aa,#6c63ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">BizBuddy</div>
+  <div class="loader-ring"></div>
+  <div style="font-size:13px;color:#5a6785;">Loading dashboard...</div>
+</div>
+
+<!-- LOGIN -->
+<div id="login-screen" style="display:none;min-height:100vh;display:none;align-items:center;justify-content:center;flex-direction:column;gap:24px;padding:24px;">
+  <div class="login-logo"><img src="icons/main-logo.png" alt="BizBuddy" style="width:100px;height:100px;object-fit:contain;border-radius:20px;"/></div>
+  <div style="text-align:center;color:#5a6785;font-size:14px;">Financial Identity for Every Entrepreneur</div>
+  <div class="login-card">
+    <h2>My Dashboard</h2>
+    <p>Enter your WhatsApp number to view your financial profile and loan readiness score.</p>
+    <div class="input-group">
+      <label>WhatsApp Number (with country code)</label>
+      <input type="tel" id="phone-input" placeholder="e.g. 60123456789" />
+    </div>
+    <button class="btn-primary" onclick="handleLogin()">Access Dashboard -></button>
+    <div id="login-error" style="color:#ff6b6b;font-size:13px;text-align:center;display:none;"></div>
+    <div style="margin-top:12px;text-align:center;">
+      <a href="index.html" style="font-size:12px;color:var(--muted);text-decoration:none;">← Back to Home</a>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none;">
+  <!-- PULL TO REFRESH INDICATOR -->
+  <div class="pull-indicator" id="pull-indicator">
+    <span class="pull-arrow">↓</span>
+  </div>
+
+  <nav class="topnav">
+    <div class="nav-logo"><img src="icons/horizontal-logo.png" alt="BizBuddy" style="height:32px;width:auto;display:block;"/></div>
+    <div class="nav-right">
+      <div class="view-toggle" id="view-toggle" style="display:none;">
+        <button class="vtbtn active" onclick="switchView('mobile')" id="vt-mobile">📊 My Dashboard</button>
+        <button class="vtbtn" onclick="switchView('desktop')" id="vt-desktop">🏦 Portfolio</button>
+      </div>
+      <div class="user-badge" id="user-badge">Loading...</div>
+      <span id="last-updated" style="font-size:11px;color:var(--muted);"></span>
+      <button class="nav-menu-btn" onclick="openDrawer()" id="nav-menu-btn" title="Menu">☰</button>
+    </div>
+  </nav>
+
+  <!-- NAV DRAWER -->
+  <div class="nav-drawer-overlay" id="nav-drawer-overlay" onclick="closeDrawer()">
+    <div class="nav-drawer" onclick="event.stopPropagation()">
+      <div class="nav-drawer-header">
+        <h3>Settings</h3>
+        <button class="nav-drawer-close" onclick="closeDrawer()">✕</button>
+      </div>
+      <div id="drawer-user-info" style="padding:12px 14px;background:var(--surface2);border-radius:12px;margin-bottom:8px;">
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;" id="drawer-user-name">-</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="drawer-user-biz">-</div>
+      </div>
+      <button class="drawer-item" onclick="refreshData();closeDrawer();">
+        <span class="drawer-item-icon">↻</span> <span data-i18n="refresh_data">Refresh Data</span>
+      </button>
+      <button class="drawer-item" onclick="toggleTheme();closeDrawer();">
+        <span class="drawer-item-icon" id="drawer-theme-icon">☀️</span> <span id="drawer-theme-label">Switch to Light</span>
+      </button>
+      <button class="drawer-item" onclick="toggleLang();closeDrawer();" id="drawer-lang-btn">
+        <span class="drawer-item-icon">🌐</span> <span id="drawer-lang-label">Bahasa Melayu</span>
+      </button>
+      <button class="drawer-item" onclick="window.location.href='index.html'">
+        <span class="drawer-item-icon">🏠</span> Back to Home
+      </button>
+      <div class="drawer-divider"></div>
+      <button class="drawer-item danger" onclick="logout();closeDrawer();">
+        <span class="drawer-item-icon">⏻</span> <span data-i18n="logout">Logout</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- MOBILE / MSME VIEW -->
+  <div id="mobile-view">
+    <div class="dashboard-grid">
+
+      <!-- SCORE HERO -->
+      <div class="score-hero bb-card fade-up fade-up-1 grid-col-4" id="score-hero-card">
+        <div class="score-label" data-i18n="credit_readiness">Credit Readiness Score</div>
+        <div class="score-circle">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle class="track" cx="80" cy="80" r="68"/>
+            <circle class="fill" id="score-arc" cx="80" cy="80" r="68" stroke-dasharray="427.3" stroke-dashoffset="427.3"/>
+          </svg>
+          <div class="score-number" id="score-num">-</div>
+        </div>
+        <div class="score-badge" id="score-badge">⏳ Loading...</div>
+        <div class="score-name" id="user-name">-</div>
+        <div class="score-biz" id="user-biz">-</div>
+      </div>
+
+      <!-- STATS GRID -->
+      <div class="stats-grid grid-col-5 fade-up fade-up-1">
+        <div class="stat-card">
+          <div class="stat-icon">💰</div>
+          <div class="stat-value" id="stat-revenue">RM-</div>
+          <div class="stat-label" data-i18n="total_revenue">Total Revenue</div>
+          <div class="stat-trend" id="trend-revenue"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📦</div>
+          <div class="stat-value" id="stat-txn">-</div>
+          <div class="stat-label" data-i18n="transactions">Transactions</div>
+          <div class="stat-trend" id="trend-txn"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📈</div>
+          <div class="stat-value" id="stat-avg">RM-</div>
+          <div class="stat-label" data-i18n="avg_per_sale">Avg per Sale</div>
+          <div class="stat-trend" id="trend-avg"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🏆</div>
+          <div class="stat-value" id="stat-best">RM-</div>
+          <div class="stat-label" data-i18n="best_sale">Best Sale</div>
+          <div class="stat-trend" id="trend-best"></div>
+        </div>
+      </div>
+
+      <!-- VERIFICATION STATUS -->
+      <div class="bb-card verification-card grid-col-3 fade-up fade-up-1" id="verification-card">
+        <div class="bb-card-header">
+          <div class="bb-card-title">🛡️ <span data-i18n="verificationStatus">Verification Status</span></div>
+        </div>
+        <div class="verification-grid" id="verification-grid"></div>
+        <div class="verify-cta" id="verify-cta" style="display:none;"></div>
+      </div>
+
+      <!-- LOAN PROGRAMS -->
+      <div class="bb-card loan-programs-card grid-col-8 fade-up fade-up-3" id="loan-rec-card">
+        <div class="bb-card-header">
+          <div class="bb-card-title">🏦 <span data-i18n="availableLoans">Available Loan Programs</span></div>
+          <div class="loan-header-right">
+            <div class="bb-card-badge" id="loan-rec-badge">-</div>
+            <a id="loan-agent-compact-btn" href="#" class="loan-agent-compact-btn">⚡ <span data-i18n="loanAgentBtn">Find Best Match →</span></a>
+          </div>
+        </div>
+        <div class="loan-grid" id="loan-rec-list">
+          <div class="loan-loading">
+            <div class="loader-ring" style="width:28px;height:28px;border-width:2px;margin:0 auto 8px;"></div>
+            <div style="font-size:13px;color:var(--muted);">Finding your loan matches...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MY LOAN APPLICATIONS -->
+      <div class="bb-card applications-card grid-col-4 fade-up fade-up-3" id="applications-card">
+        <div class="bb-card-header">
+          <div class="bb-card-title">📋 <span data-i18n="myApplications">My Applications</span></div>
+          <div class="bb-card-badge" id="applications-badge">-</div>
+        </div>
+        <div id="applications-list">
+          <div class="loan-loading">
+            <div class="loader-ring" style="width:24px;height:24px;border-width:2px;margin:0 auto 8px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCORE BREAKDOWN -->
+      <div class="bb-card breakdown-card grid-col-5 fade-up fade-up-3" id="score-breakdown-card" style="display:none;">
+        <div class="bb-card-header">
+          <div class="bb-card-title" data-i18n="score_breakdown">Score Breakdown</div>
+          <div class="bb-card-badge" data-i18n="ai_scored">AI Scored</div>
+        </div>
+        <div id="breakdown-rows"></div>
+      </div>
+
+      <!-- SCORE HISTORY -->
+      <div class="bb-card chart-card grid-col-4 fade-up fade-up-3" id="score-history-card" style="display:none;">
+        <div class="bb-card-header">
+          <div class="bb-card-title" data-i18n="score_history">Score History</div>
+          <div class="bb-card-badge" id="score-history-badge">-</div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="score-history-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- ROADMAP -->
+      <div class="bb-card roadmap-card grid-col-3 fade-up fade-up-4">
+        <div class="bb-card-header">
+          <div class="bb-card-title" data-i18n="loan_roadmap">Loan Readiness Roadmap</div>
+          <div class="bb-card-badge" id="roadmap-pct">0%</div>
+        </div>
+        <div class="roadmap-progress">
+          <div class="roadmap-fill" id="roadmap-bar" style="width:0%"></div>
+        </div>
+        <div id="roadmap-items"></div>
+      </div>
+
+      <!-- SALES CHART -->
+      <div class="bb-card chart-card sales-activity-card grid-col-8 fade-up fade-up-3">
+        <div class="bb-card-header">
+          <div class="bb-card-title" data-i18n="sales_activity">Sales Activity</div>
+          <div class="chart-tabs">
+            <button class="chart-tab active" onclick="switchChartPeriod('7d',this)" id="ct-7d">7 Days</button>
+            <button class="chart-tab" onclick="switchChartPeriod('30d',this)" id="ct-30d">30 Days</button>
+            <button class="chart-tab" onclick="switchChartPeriod('all',this)" id="ct-all">All Time</button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="sales-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- RECENT SALES -->
+      <div class="bb-card recent-sales-card grid-col-4 fade-up fade-up-5">
+        <div class="bb-card-header">
+          <div class="bb-card-title" data-i18n="recent_sales">Recent Sales</div>
+          <div class="bb-card-badge" id="recent-count">0 records</div>
+        </div>
+        <div id="recent-sales-container"></div>
+      </div>
+
+      <!-- CERTIFICATE -->
+      <div class="cert-card fade-up fade-up-5 grid-col-12" id="cert-card-el">
+        <div class="cert-shine"></div>
+        <div class="cert-content">
+          <div class="cert-left">
+            <div class="cert-logo-icon">⭐</div>
+            <div class="cert-stars" id="cert-stars">-</div>
+          </div>
+          <div class="cert-center">
+            <div class="cert-title" data-i18n="credit_cert">Credit Certificate</div>
+            <div class="cert-score-big" id="cert-score">-</div>
+            <div class="cert-status" id="cert-status">Generate credit score via WhatsApp to see certificate</div>
+          </div>
+          <div class="cert-right">
+            <div class="cert-id-label">Certificate ID</div>
+            <div class="cert-id" id="cert-id">NC-XXXX-XXXXXXXX</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /.dashboard-grid -->
+  </div><!-- /#mobile-view -->
+
+  <!-- DESKTOP VIEW (bank portal only) -->
+  <div id="desktop-view" style="display:none;"></div>
+</div><!-- /#app -->
+
+<script type="module" src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW registered:', reg.scope))
+      .catch(err => console.log('SW registration failed:', err));
+  });
+}
+</script>
+</body>
+</html>

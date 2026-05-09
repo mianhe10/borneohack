@@ -28,6 +28,13 @@ async function handleImage(phone, imageId) {
     const lang = userData.language || 'bm';
     const state = userData.state || 'menu';
 
+    // Loan doc upload: don't process image, just store media ID
+    if (state === 'loan_doc_upload') {
+        const { handleDocUpload } = require('../features/loan_agent');
+        await handleDocUpload(phone, imageId, userRef);
+        return;
+    }
+
     await sendMessage(phone, lang === 'bm' ? '📸 Gambar diterima! Sedang menganalisis... ⏳' : '📸 Image received! Analyzing... ⏳');
 
     let buffer, mimeType;
@@ -66,28 +73,63 @@ Return ONLY valid JSON, nothing else:
     }
 
     // Payment screenshot flow
-    const payPrompt = `Analyze this image. Is this a payment screenshot or receipt?
+    const payPrompt = `Analyze this image. Is this a payment/transaction receipt or screenshot?
 Return ONLY valid JSON nothing else:
-{"amount": number, "item": "string", "is_payment": true}
-If not payment: {"amount": 0, "item": "unknown", "is_payment": false}`;
+{"amount": number, "item": "string", "is_payment": true, "type": "sale" | "expense"}
+sale = customer paid you (payment received, sales receipt, incoming transfer)
+expense = you paid someone (purchase receipt, supplier invoice, outgoing payment)
+If not a payment/receipt: {"amount": 0, "item": "unknown", "is_payment": false, "type": "sale"}`;
 
-    let payData = { amount: 0, is_payment: false };
+    let payData = { amount: 0, is_payment: false, type: 'sale' };
     try { payData = parseJson(await genTextWithImage(payPrompt, buffer, mimeType)); } catch { /* fallback */ }
 
     if (payData.is_payment && payData.amount > 0) {
-        await userRef.update({
-            sales: FieldValue.arrayUnion({ amount: payData.amount, item: payData.item || 'jualan', date: today(), source: 'screenshot' }),
-        });
         const cur = getCurrency(userData);
-        await sendMessage(phone, lang === 'bm'
-            ? `✅ *Bayaran direkod dari gambar!*\n\n💵 Jumlah: ${cur}${payData.amount}\n📦 Item: ${payData.item || 'Jualan'}\n\nTaip *MENU* untuk kembali`
-            : `✅ *Payment recorded from image!*\n\n💵 Amount: ${cur}${payData.amount}\n📦 Item: ${payData.item || 'Sale'}\n\nType *MENU* to go back`
+        const todayStr = today();
+        const isExpense = payData.type === 'expense';
+        const itemClean = String(payData.item || '').replace(/^["']|["']$/g, '') || (isExpense ? (lang === 'bm' ? 'Perbelanjaan' : 'Expense') : (lang === 'bm' ? 'Jualan' : 'Sale'));
+        const record = { amount: payData.amount, item: itemClean, date: todayStr, source: 'screenshot' };
+
+        await userRef.update({
+            [isExpense ? 'expenses' : 'sales']: FieldValue.arrayUnion(record),
+        });
+
+        // Running totals for today
+        const fresh = (await userRef.get()).data();
+        const todaySales = (fresh.sales || []).filter(s => s.date === todayStr).reduce((sum, x) => sum + (x.amount || 0), 0);
+        const todayExpenses = (fresh.expenses || []).filter(e => e.date === todayStr).reduce((sum, x) => sum + (x.amount || 0), 0);
+        const runningLine = todayExpenses > 0
+            ? (lang === 'bm'
+                ? `\n\n📈 Jualan hari ini: *${cur}${todaySales.toLocaleString()}* | 💸 Belanja: *${cur}${todayExpenses.toLocaleString()}* | 💰 Bersih: *${cur}${(todaySales - todayExpenses).toLocaleString()}*`
+                : `\n\n📈 Today sales: *${cur}${todaySales.toLocaleString()}* | 💸 Expenses: *${cur}${todayExpenses.toLocaleString()}* | 💰 Net: *${cur}${(todaySales - todayExpenses).toLocaleString()}*`)
+            : (lang === 'bm'
+                ? `\n\n📈 Jualan hari ini: *${cur}${todaySales.toLocaleString()}*`
+                : `\n\n📈 Today's sales: *${cur}${todaySales.toLocaleString()}*`);
+
+        const continueHint = state === 'log_sale'
+            ? (lang === 'bm' ? '\n\nTerus rekod atau taip *MENU* untuk kembali' : '\n\nKeep recording or type *MENU* to go back')
+            : (lang === 'bm' ? '\n\nTaip *MENU* untuk kembali' : '\n\nType *MENU* to go back');
+
+        await sendMessage(phone, isExpense
+            ? (lang === 'bm'
+                ? `✅ *Perbelanjaan direkod dari gambar!*\n\n💸 Jumlah: ${cur}${payData.amount.toLocaleString()}\n📦 Item: ${itemClean}${runningLine}${continueHint}`
+                : `✅ *Expense recorded from image!*\n\n💸 Amount: ${cur}${payData.amount.toLocaleString()}\n📦 Item: ${itemClean}${runningLine}${continueHint}`)
+            : (lang === 'bm'
+                ? `✅ *Bayaran direkod dari gambar!*\n\n💵 Jumlah: ${cur}${payData.amount.toLocaleString()}\n📦 Item: ${itemClean}${runningLine}${continueHint}`
+                : `✅ *Payment recorded from image!*\n\n💵 Amount: ${cur}${payData.amount.toLocaleString()}\n📦 Item: ${itemClean}${runningLine}${continueHint}`)
         );
     } else {
-        await sendMessage(phone, lang === 'bm'
-            ? 'Saya tidak dapat mengesan bayaran dalam gambar ini.\nCuba hantar screenshot yang lebih jelas.\n\n💡 _Jika ini sijil SSM/pendaftaran perniagaan, taip *VERIFY* untuk sahkan perniagaan awak._\n\nTaip *MENU* untuk kembali'
-            : 'I could not detect a payment in this image.\nPlease send a clearer screenshot.\n\n💡 _If this is your SSM/business registration cert, type *VERIFY* to verify your business._\n\nType *MENU* to go back'
-        );
+        if (state === 'log_sale') {
+            await sendMessage(phone, lang === 'bm'
+                ? 'Saya tidak dapat kesan jumlah dalam gambar ini. Cuba hantar gambar yang lebih jelas, atau taip jualan awak sebagai teks.\n\nContoh: _"Jual nasi lemak RM15"_\n\nTaip *MENU* untuk kembali'
+                : 'I could not detect an amount in this image. Try a clearer screenshot, or type your sale as text.\n\nExample: _"Sold nasi lemak RM15"_\n\nType *MENU* to go back'
+            );
+        } else {
+            await sendMessage(phone, lang === 'bm'
+                ? 'Saya tidak dapat mengesan bayaran dalam gambar ini.\nCuba hantar screenshot yang lebih jelas.\n\n💡 _Jika ini sijil SSM/pendaftaran perniagaan, hantar semasa dalam menu Skor Kredit._\n\nTaip *MENU* untuk kembali'
+                : 'I could not detect a payment in this image.\nPlease send a clearer screenshot.\n\n💡 _If this is your SSM/business registration cert, send it during the Credit Score flow._\n\nType *MENU* to go back'
+            );
+        }
     }
 }
 

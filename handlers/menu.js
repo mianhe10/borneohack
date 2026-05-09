@@ -3,7 +3,7 @@ const { sendMessage } = require('../send');
 const { generateCreditScore } = require('../features/credit');
 const { showProfile, showCertificate, showScoreBreakdown } = require('../features/profile');
 const { showSalesSummary } = require('../features/summary');
-const { showLoanChecklist, showLoanReferral } = require('../features/loan');
+const { showLoanChecklist } = require('../features/loan');
 
 async function handleMenu(phone, text, userRef) {
     const snap = await userRef.get();
@@ -20,14 +20,9 @@ async function handleMenu(phone, text, userRef) {
                 '1️⃣ Rekod Jualan\n' +
                 '2️⃣ Jana Skor Kredit\n' +
                 '3️⃣ Ringkasan Jualan\n' +
-                '4️⃣ 🤖 Chat dengan AI\n\n' +
-                '💡 Taip *PROFIL* untuk profil perniagaan\n' +
-                '💡 Taip *SIJIL* untuk sijil kredit\n' +
-                '💡 Taip *PECAHAN* untuk pecahan skor\n' +
-                '💡 Taip *PINJAMAN* untuk semak kelayakan pinjaman\n' +
-                '💡 Taip *RUJUK* untuk surat rujukan pinjaman\n' +
-                '💡 Taip *ENGLISH* untuk tukar bahasa\n' +
-                '🔒 Taip *DATA* untuk lihat data yang disimpan\n\n' +
+                '4️⃣ 🤖 Chat dengan AI\n' +
+                '5️⃣ 🏦 Loan Agent — Cari Pinjaman\n\n' +
+                '💡 Taip *PROFIL* / *SIJIL* / *STATUS* / *ENGLISH*\n\n' +
                 '_Balas dengan nombor pilihan_'
             );
         } else {
@@ -36,14 +31,9 @@ async function handleMenu(phone, text, userRef) {
                 '1️⃣ Record Sales\n' +
                 '2️⃣ Generate Credit Score\n' +
                 '3️⃣ Sales Summary\n' +
-                '4️⃣ 🤖 Chat with AI\n\n' +
-                '💡 Type *PROFILE* for business profile\n' +
-                '💡 Type *CERTIFICATE* for credit certificate\n' +
-                '💡 Type *BREAKDOWN* for score breakdown\n' +
-                '💡 Type *LOAN* to check loan eligibility\n' +
-                '💡 Type *REFER* for loan referral letter\n' +
-                '💡 Type *BM* to switch to Bahasa Malaysia\n' +
-                '🔒 Type *DATA* to view your stored data\n\n' +
+                '4️⃣ 🤖 Chat with AI\n' +
+                '5️⃣ 🏦 Loan Agent — Find a Loan\n\n' +
+                '💡 Type *PROFILE* / *CERTIFICATE* / *STATUS* / *BM*\n\n' +
                 '_Reply with your choice number_'
             );
         }
@@ -91,6 +81,39 @@ async function handleMenu(phone, text, userRef) {
             ? `🤖 *BizBuddy AI*\n\nTanya apa sahaja! Contoh:\n• _"Ramalan jualan saya bulan depan?"_\n• _"Buatkan caption Instagram untuk ${userData.product || 'produk saya'}"_\n• _"Macam mana nak kurangkan kos?"_\n• _"Boleh saya eksport ke negara lain?"_\n• _"Macam mana nak mohon ${cc.loan_program}?"_\n\n_(Taip MENU untuk kembali)_`
             : `🤖 *BizBuddy AI*\n\nAsk me anything! Examples:\n• _"What's my sales forecast for next month?"_\n• _"Write an Instagram caption for ${userData.product || 'my product'}"_\n• _"How can I reduce my costs?"_\n• _"Can I export to other countries?"_\n• _"How do I apply for ${cc.loan_program}?"_\n\n_(Type MENU to go back)_`
         );
+        return;
+    }
+
+    if (tUpper === '5') {
+        const existingMatches = userData.loan_matches;
+        const validCached = existingMatches && existingMatches.length > 0 && existingMatches[0].matchPct !== undefined;
+        if (validCached) {
+            const { sendMatches } = require('../features/loan_agent');
+            await sendMatches(phone, userRef, existingMatches, userData.provisional_score || userData.credit_score || 0, lang);
+            return;
+        }
+        const name2 = userData.owner_name || userData.business_name || (lang === 'bm' ? 'Peniaga' : 'there');
+        const existingBizName = userData.business_name;
+        if (existingBizName) {
+            // Pre-fill from profile, skip Q1
+            await userRef.update({ state: 'express_loan_q2', express_loan_data: { business_name: existingBizName } });
+            await sendMessage(phone, lang === 'bm'
+                ? `🏦 *BizBuddy Loan Agent*\n\nHai ${name2}! Jom cari pinjaman terbaik untuk awak!\n\n✅ Perniagaan: *${existingBizName}*\n\nSoalan 2️⃣: Apa *jenis perniagaan* awak?\n\n1️⃣ 🍜 Makanan & Minuman\n2️⃣ 🛍️ Runcit / Perniagaan\n3️⃣ 🚚 Perkhidmatan\n4️⃣ 🏭 Pembuatan\n5️⃣ 📦 Lain-lain\n\n_Balas dengan nombor_`
+                : `🏦 *BizBuddy Loan Agent*\n\nHi ${name2}! Let's find your best loan match!\n\n✅ Business: *${existingBizName}*\n\nQuestion 2️⃣: What *type of business* is it?\n\n1️⃣ 🍜 Food & Beverage\n2️⃣ 🛍️ Retail / Trading\n3️⃣ 🚚 Services\n4️⃣ 🏭 Manufacturing\n5️⃣ 📦 Other\n\n_Reply with a number_`
+            );
+        } else {
+            await userRef.update({ state: 'express_loan_q1', express_loan_data: {} });
+            await sendMessage(phone, lang === 'bm'
+                ? `🏦 *BizBuddy Loan Agent*\n\nHai ${name2}! Saya akan cari pinjaman terbaik untuk awak dalam masa 2 minit!\n\nSoalan 1️⃣: Apa *nama perniagaan* awak?\n_(Contoh: Kedai Makan Aisyah, Tudung Sarah)_`
+                : `🏦 *BizBuddy Loan Agent*\n\nHi ${name2}! I'll find your best loan match in under 2 minutes!\n\nQuestion 1️⃣: What is your *business name*?\n_(Example: Ahmad Catering, Siti Fashion House)_`
+            );
+        }
+        return;
+    }
+
+    if (tUpper === 'STATUS' || tUpper === 'PERMOHONAN' || tUpper === 'APPLICATION') {
+        const { showLoanStatus } = require('../features/loan_agent');
+        await showLoanStatus(phone, userRef);
         return;
     }
 
